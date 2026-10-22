@@ -65,7 +65,9 @@
       <!-- QR Code & Room Info -->
       <div class="sidebar-section">
         <h3 class="sidebar-title">Join the Game!</h3>
-        <img v-if="qrCodeUrl" :src="qrCodeUrl" :alt="`QR code for room ${roomCode}`" class="qr-code" />
+        <button v-if="qrCodeUrl" type="button" class="qr-button" title="Click to enlarge" aria-label="Enlarge QR code" @click="showLargeQr = true">
+          <img :src="qrCodeUrl" :alt="`QR code for room ${roomCode}`" class="qr-code" />
+        </button>
         <div class="room-code">{{ roomCode || '----' }}</div>
         <p class="sidebar-hint">Scan QR or enter code</p>
       </div>
@@ -102,6 +104,13 @@
           ○ Waiting for connection
         </div>
       </div>
+    </div>
+
+    <!-- Enlarged QR code overlay -->
+    <div v-if="showLargeQr && qrCodeUrl" class="qr-overlay" role="dialog" aria-label="Join QR code" @click="showLargeQr = false">
+      <img :src="qrCodeUrl" :alt="`QR code for room ${roomCode}`" class="qr-code-large" />
+      <div class="qr-overlay-code">{{ roomCode }}</div>
+      <p class="qr-overlay-hint">Click anywhere to close</p>
     </div>
 
     <!-- Live Standings Modal (player standings only) -->
@@ -167,6 +176,7 @@ const totalQuestions = ref(0)
 
 // Live standings modal (points-ranked, reveal-gated by the server)
 const showStandings = ref(false)
+const showLargeQr = ref(false)
 const standings = ref([])
 
 const fetchStandings = async () => {
@@ -273,6 +283,7 @@ const joinRoom = async () => {
 
 // Initialize Socket.IO connection
 onMounted(() => {
+  window.addEventListener('keydown', handleEscape)
   const socketInstance = socket.connect()
 
   // Check for room code in URL query parameter (from QR code)
@@ -315,8 +326,9 @@ onMounted(() => {
   socket.on('questionPresented', ({ questionIndex, question, autoMode: isAutoMode, timerStartedAt: serverTimerStartedAt, timerDuration: serverTimerDuration }) => {
     console.log('[DISPLAY] Question presented:', questionIndex)
 
-    // Close the standings table so the new question is visible
+    // Close the standings table and enlarged QR so the new question is visible
     showStandings.value = false
+    showLargeQr.value = false
 
     // Clear any existing display timeout from previous question
     if (questionDisplayTimeout.value) {
@@ -408,6 +420,7 @@ onMounted(() => {
   socket.on('quizResults', (data) => {
     if (data.showResults) {
       showStandings.value = false
+      showLargeQr.value = false
       quizResultsData.value = data
       resultsCountdown.value = 0
       if (countdownInterval) {
@@ -420,6 +433,7 @@ onMounted(() => {
   // Listen for room closed
   socket.on('roomClosed', () => {
     showStandings.value = false
+    showLargeQr.value = false
     standings.value = []
     quizResultsData.value = null
     quizCompleted.value = false
@@ -465,7 +479,12 @@ onMounted(() => {
 })
 
 // Cleanup on unmount
+const handleEscape = (event) => {
+  if (event.key === 'Escape') showLargeQr.value = false
+}
+
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleEscape)
   socket.disconnect()
 
   // Clear any pending timeouts
@@ -724,6 +743,50 @@ onUnmounted(() => {
   font-size: var(--font-base);
   color: var(--text-primary);
   text-align: center;
+}
+
+.qr-button {
+  display: block;
+  margin: 0 auto;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: zoom-in;
+}
+
+.qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: rgba(0, 0, 0, 0.92);
+  cursor: zoom-out;
+}
+
+.qr-code-large {
+  width: min(80vw, 75vh);
+  height: min(80vw, 75vh);
+  background: white;
+  padding: 2vmin;
+  border-radius: 1.5vmin;
+  image-rendering: pixelated;
+}
+
+.qr-overlay-code {
+  font-size: clamp(2rem, 8vmin, 6rem);
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  color: var(--secondary-light);
+}
+
+.qr-overlay-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1rem;
 }
 
 .qr-code {
