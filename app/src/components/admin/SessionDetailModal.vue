@@ -65,16 +65,13 @@ defineEmits(['close', 'deleteSession', 'toggleQuestion', 'exportCSV', 'exportPDF
 
 const rankedPlayers = computed(() => {
   if (!props.session || !props.session.playerResults) return [];
-  // Sort players by correct answers (descending), then by accuracy (descending)
-  return [...props.session.playerResults].sort((a, b) => {
-    if (b.correct !== a.correct) {
-      return b.correct - a.correct;
-    }
-    // If correct answers are the same, sort by accuracy
-    const accA = a.answered > 0 ? (a.correct / a.answered) * 100 : 0;
-    const accB = b.answered > 0 ? (b.correct / b.answered) * 100 : 0;
-    return accB - accA;
-  });
+  // Rank by total points; ties: more correct answers, then faster total time on correct answers
+  return [...props.session.playerResults].sort((a, b) =>
+    (b.points || 0) - (a.points || 0) ||
+    b.correct - a.correct ||
+    (a.responseMs || 0) - (b.responseMs || 0) ||
+    String(a.name).localeCompare(String(b.name))
+  );
 });
 </script>
 

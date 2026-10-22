@@ -10,6 +10,7 @@
 import { getClient, query } from '../config/database.js';
 import { env } from '../config/environment.js';
 import { matchShortAnswer } from '../utils/similarity.js';
+import { totalPoints } from '../utils/scoring.js';
 
 /**
  * SessionService - Manages session persistence and auto-save
@@ -98,26 +99,8 @@ class SessionService {
         // Skip spectators from database saves
         if (player.isSpectator) continue;
 
-        // Compute player's correct answer count
-        let playerScore = 0;
-        if (player.answers && room.quizData && room.quizData.questions) {
-          for (const [qIdx, answer] of Object.entries(player.answers)) {
-            const question = room.quizData.questions[parseInt(qIdx)];
-            if (!question) continue;
-
-            if (question.type === 'short_answer') {
-              if (
-                answer !== undefined &&
-                answer !== '' &&
-                matchShortAnswer(answer, question.acceptedAnswers || [], shortAnswerThreshold).isCorrect
-              ) {
-                playerScore++;
-              }
-            } else if (answer === question.correctChoice) {
-              playerScore++;
-            }
-          }
-        }
+        // Player score = total speed-based points (computed at submit time, server-side)
+        const playerScore = totalPoints(player);
 
         // Insert or update participant with user_id from guest/registered account
         // For guests (null user_id), we can't use ON CONFLICT since the partial
@@ -207,6 +190,7 @@ class SessionService {
             const question = room.quizData.questions[questionIndex];
 
             if (!question || !question.id) continue;
+            const meta = player.answerMeta?.[questionIndex];
 
             if (question.type === 'short_answer') {
               // Free-text submissions have no natural row in `answers` to point
@@ -221,12 +205,14 @@ class SessionService {
               await client.query(
                 `
                 INSERT INTO participant_answers (
-                  participant_id, question_id, answer_id, answer_text, is_correct, answered_at
+                  participant_id, question_id, answer_id, answer_text, is_correct, answered_at,
+                  points_awarded, response_time_ms
                 )
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (participant_id, question_id) DO NOTHING
               `,
-                [participantId, question.id, match.matchedAnswerId, answer, match.isCorrect, new Date()]
+                [participantId, question.id, match.matchedAnswerId, answer, match.isCorrect,
+                  meta?.answeredAt ? new Date(meta.answeredAt) : new Date(), meta?.points || 0, meta?.responseMs ?? null]
               );
               continue;
             }
@@ -247,12 +233,14 @@ class SessionService {
               await client.query(
                 `
                 INSERT INTO participant_answers (
-                  participant_id, question_id, answer_id, is_correct, answered_at
+                  participant_id, question_id, answer_id, is_correct, answered_at,
+                  points_awarded, response_time_ms
                 )
-                VALUES ($1, $2, $3, $4, $5)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (participant_id, question_id) DO NOTHING
               `,
-                [participantId, question.id, matchedAnswer.id, matchedAnswer.is_correct, new Date()]
+                [participantId, question.id, matchedAnswer.id, matchedAnswer.is_correct,
+                  meta?.answeredAt ? new Date(meta.answeredAt) : new Date(), meta?.points || 0, meta?.responseMs ?? null]
               );
             }
           }

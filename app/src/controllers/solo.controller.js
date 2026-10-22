@@ -15,7 +15,19 @@ import { getClient, query } from '../config/database.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { sendSuccess } from '../utils/responses.js';
 import { matchShortAnswer } from '../utils/similarity.js';
+import { calculatePoints, isLate, DEFAULT_TIME_LIMIT } from '../utils/scoring.js';
 import crypto from 'crypto';
+
+/** Global default question timer (app_settings), used when neither question nor quiz sets one. */
+async function getGlobalTimer(client) {
+  const r = await client.query(`SELECT setting_value FROM app_settings WHERE setting_key = 'default_question_timer'`);
+  return parseInt(r.rows[0]?.setting_value) || DEFAULT_TIME_LIMIT;
+}
+
+/** Effective limit (seconds): question -> quiz -> global default. */
+function effectiveLimit(questionTimeLimit, quizTimer, globalTimer) {
+  return questionTimeLimit ?? quizTimer ?? globalTimer;
+}
 
 /**
  * Generate a random room code for solo sessions
@@ -81,6 +93,7 @@ export async function getSoloQuiz(req, res, next) {
       }
 
       const quiz = quizResult.rows[0];
+      const globalTimer = await getGlobalTimer(client);
 
       // Fetch questions WITHOUT correctChoice
       const questionsResult = await client.query(
@@ -89,6 +102,8 @@ export async function getSoloQuiz(req, res, next) {
           qs.question_text,
           qs.question_type,
           qs.image_url,
+          qs.points,
+          qs.time_limit,
           qq.question_order,
           a.answer_text,
           a.display_order
@@ -109,6 +124,8 @@ export async function getSoloQuiz(req, res, next) {
             text: row.question_text,
             type: row.question_type,
             imageUrl: row.image_url,
+            points: row.points,
+            timeLimit: effectiveLimit(row.time_limit, quiz.question_timer, globalTimer),
             order: row.question_order,
             choices: []
           });
@@ -122,7 +139,7 @@ export async function getSoloQuiz(req, res, next) {
         id: quiz.id,
         title: quiz.title,
         description: quiz.description,
-        questionTimer: quiz.question_timer || 30,
+        questionTimer: quiz.question_timer || globalTimer,
         revealDelay: quiz.reveal_delay || 5,
         questionCount: questions.length,
         questions
@@ -241,6 +258,8 @@ export async function createSoloSession(req, res, next) {
         qs.question_text,
         qs.question_type,
         qs.image_url,
+        qs.points,
+        qs.time_limit,
         qq.question_order
        FROM quiz_questions qq
        JOIN questions qs ON qq.question_id = qs.id
@@ -250,6 +269,7 @@ export async function createSoloSession(req, res, next) {
       [quizId]
     );
 
+    const globalTimer = await getGlobalTimer(client);
     let firstQuestion = null;
     if (firstQuestionResult.rows.length > 0) {
       const q = firstQuestionResult.rows[0];
@@ -266,8 +286,12 @@ export async function createSoloSession(req, res, next) {
         text: q.question_text,
         type: q.question_type,
         imageUrl: q.image_url,
+        points: q.points,
+        timeLimit: effectiveLimit(q.time_limit, quiz.question_timer, globalTimer),
         choices: choicesResult.rows.map(r => r.answer_text)
       };
+      // Server-side clock for the first question
+      await client.query(`UPDATE game_sessions SET current_question_started_at = NOW() WHERE id = $1`, [session.id]);
     }
 
     await client.query('COMMIT');
@@ -276,7 +300,7 @@ export async function createSoloSession(req, res, next) {
       sessionId: session.id,
       roomCode: session.room_code,
       quizTitle: quiz.title,
-      questionTimer: quiz.question_timer || 30,
+      questionTimer: quiz.question_timer || globalTimer,
       revealDelay: quiz.reveal_delay || 5,
       totalQuestions: questionsResult.rows.length,
       participantId,
@@ -314,9 +338,11 @@ export async function submitSoloAnswer(req, res, next) {
 
     // Verify session exists and is in progress
     const sessionResult = await client.query(
-      `SELECT gs.id, gs.quiz_id, gs.status
+      `SELECT gs.id, gs.quiz_id, gs.status,
+              (EXTRACT(EPOCH FROM (NOW() - gs.current_question_started_at)) * 1000)::BIGINT AS elapsed_ms
        FROM game_sessions gs
-       WHERE gs.id = $1 AND gs.session_type = 'solo'`,
+       WHERE gs.id = $1 AND gs.session_type = 'solo'
+       FOR UPDATE`,
       [sessionId]
     );
 
@@ -356,7 +382,7 @@ export async function submitSoloAnswer(req, res, next) {
 
     // Look up question type
     const questionTypeResult = await client.query(
-      `SELECT question_type FROM questions WHERE id = $1`,
+      `SELECT question_type, points, time_limit FROM questions WHERE id = $1`,
       [questionId]
     );
     if (questionTypeResult.rows.length === 0) {
@@ -364,6 +390,18 @@ export async function submitSoloAnswer(req, res, next) {
       throw new BadRequestError('Question not found');
     }
     const questionType = questionTypeResult.rows[0].question_type;
+
+    // Server-side timing: elapsed since the question was served, vs. its effective limit
+    const quizTimerResult = await client.query(`SELECT question_timer FROM quizzes WHERE id = $1`, [session.quiz_id]);
+    const limitSec = effectiveLimit(
+      questionTypeResult.rows[0].time_limit,
+      quizTimerResult.rows[0]?.question_timer ?? null,
+      await getGlobalTimer(client)
+    );
+    // No recorded start (client never confirmed showing the question) -> minimum speed points, never a bonus
+    const elapsedMs = session.elapsed_ms === null ? limitSec * 1000 : Math.max(0, Number(session.elapsed_ms));
+    const late = isLate(limitSec, elapsedMs);
+    let pointsAwarded = 0;
 
     let isCorrect;
     let correctChoice = null;
@@ -379,13 +417,14 @@ export async function submitSoloAnswer(req, res, next) {
       const threshold = thresholdResult.rows.length > 0 ? parseFloat(thresholdResult.rows[0].setting_value) : 0.85;
 
       const match = matchShortAnswer(answerText, acceptedAnswersResult.rows, threshold);
-      isCorrect = match.isCorrect;
+      isCorrect = match.isCorrect && !late;
+      pointsAwarded = calculatePoints({ isCorrect, points: questionTypeResult.rows[0].points, limitSec, elapsedMs });
 
       // Record the answer — answer_id is the matched accepted answer if any, else NULL; answer_text always holds the raw submission
       await client.query(
-        `INSERT INTO participant_answers (participant_id, question_id, answer_id, answer_text, is_correct, answered_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [participantId, questionId, match.matchedAnswerId, answerText, isCorrect]
+        `INSERT INTO participant_answers (participant_id, question_id, answer_id, answer_text, is_correct, answered_at, points_awarded, response_time_ms)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)`,
+        [participantId, questionId, match.matchedAnswerId, answerText, isCorrect, pointsAwarded, elapsedMs]
       );
     } else {
       // Get correct answer for this question
@@ -402,16 +441,25 @@ export async function submitSoloAnswer(req, res, next) {
       }
 
       correctChoice = correctAnswerResult.rows[0].display_order;
-      isCorrect = answerIndex === correctChoice;
+      isCorrect = answerIndex === correctChoice && !late;
+      pointsAwarded = calculatePoints({ isCorrect, points: questionTypeResult.rows[0].points, limitSec, elapsedMs });
 
       // Record the answer
-      await client.query(
-        `INSERT INTO participant_answers (participant_id, question_id, answer_id, is_correct, answered_at)
-         SELECT $1, $2, a.id, $3, NOW()
+      const inserted = await client.query(
+        `INSERT INTO participant_answers (participant_id, question_id, answer_id, is_correct, answered_at, points_awarded, response_time_ms)
+         SELECT $1, $2, a.id, $3, NOW(), $5, $6
          FROM answers a
          WHERE a.question_id = $2 AND a.display_order = $4`,
-        [participantId, questionId, isCorrect, answerIndex]
+        [participantId, questionId, isCorrect, answerIndex, pointsAwarded, elapsedMs]
       );
+      if (inserted.rowCount === 0) {
+        // Timeout / no selection: record an unanswered row (answer_id NULL) so the question isn't served again
+        await client.query(
+          `INSERT INTO participant_answers (participant_id, question_id, answer_id, is_correct, answered_at, points_awarded, response_time_ms)
+           VALUES ($1, $2, NULL, FALSE, NOW(), 0, $3)`,
+          [participantId, questionId, elapsedMs]
+        );
+      }
     }
 
     // Mark question as presented and revealed in session_questions
@@ -422,13 +470,12 @@ export async function submitSoloAnswer(req, res, next) {
       [sessionId, questionId]
     );
 
-    // Update participant score if correct
-    if (isCorrect) {
-      await client.query(
-        `UPDATE game_participants SET score = score + 1 WHERE id = $1`,
-        [participantId]
-      );
-    }
+    // Update participant score (total points) and read it back for the response
+    const scoreResult = await client.query(
+      `UPDATE game_participants SET score = score + $2 WHERE id = $1 RETURNING score`,
+      [participantId, pointsAwarded]
+    );
+    const totalPoints = scoreResult.rows[0]?.score ?? pointsAwarded;
 
     // Get next question
     const nextQuestionResult = await client.query(
@@ -437,6 +484,8 @@ export async function submitSoloAnswer(req, res, next) {
         qs.question_text,
         qs.question_type,
         qs.image_url,
+        qs.points,
+        qs.time_limit,
         qq.question_order
        FROM quiz_questions qq
        JOIN questions qs ON qq.question_id = qs.id
@@ -468,8 +517,12 @@ export async function submitSoloAnswer(req, res, next) {
         text: q.question_text,
         type: q.question_type,
         imageUrl: q.image_url,
+        points: q.points,
+        timeLimit: effectiveLimit(q.time_limit, quizTimerResult.rows[0]?.question_timer ?? null, await getGlobalTimer(client)),
         choices: choicesResult.rows.map(r => r.answer_text)
       };
+      // The next question's clock starts when the player's client actually shows it (see startSoloQuestion)
+      await client.query(`UPDATE game_sessions SET current_question_started_at = NULL WHERE id = $1`, [sessionId]);
     }
 
     // Get correct answer text for feedback
@@ -483,6 +536,10 @@ export async function submitSoloAnswer(req, res, next) {
 
     sendSuccess(res, {
       isCorrect,
+      late,
+      pointsAwarded,
+      totalPoints,
+      responseTimeMs: elapsedMs,
       correctChoice,
       correctAnswerText,
       hasNextQuestion: nextQuestion !== null,
@@ -494,6 +551,37 @@ export async function submitSoloAnswer(req, res, next) {
     next(error);
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Mark the moment the player's client starts showing a question (starts the server-side clock)
+ * Body: { questionId, participantId }
+ */
+export async function startSoloQuestion(req, res, next) {
+  const { id: sessionId } = req.params;
+  const { questionId, participantId } = req.body;
+
+  if (questionId === undefined || !participantId) {
+    return next(new BadRequestError('questionId and participantId are required'));
+  }
+
+  try {
+    // Only start the clock for an unanswered question of an in-progress session whose clock isn't running
+    const result = await query(
+      `UPDATE game_sessions gs
+       SET current_question_started_at = NOW()
+       WHERE gs.id = $1 AND gs.session_type = 'solo' AND gs.status = 'in_progress'
+         AND gs.current_question_started_at IS NULL
+         AND EXISTS (SELECT 1 FROM game_participants WHERE id = $2 AND game_session_id = gs.id)
+         AND NOT EXISTS (SELECT 1 FROM participant_answers WHERE participant_id = $2 AND question_id = $3)
+       RETURNING gs.current_question_started_at`,
+      [sessionId, participantId, questionId]
+    );
+
+    sendSuccess(res, { started: result.rows.length > 0 });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -588,7 +676,10 @@ export async function getSoloResults(req, res, next) {
           qq.question_order,
           qs.question_text,
           qs.question_type,
+          qs.points as max_points,
           pa.is_correct,
+          pa.points_awarded,
+          pa.response_time_ms,
           pa.answer_text as submitted_text,
           a_selected.answer_text as selected_answer,
           a_selected.display_order as selected_index,
@@ -598,7 +689,11 @@ export async function getSoloResults(req, res, next) {
          JOIN questions qs ON qq.question_id = qs.id
          LEFT JOIN participant_answers pa ON pa.question_id = qs.id AND pa.participant_id = $1
          LEFT JOIN answers a_selected ON pa.answer_id = a_selected.id
-         JOIN answers a_correct ON a_correct.question_id = qs.id AND a_correct.is_correct = TRUE
+         LEFT JOIN LATERAL (
+           SELECT answer_text, display_order FROM answers
+           WHERE question_id = qs.id AND is_correct = TRUE
+           ORDER BY display_order LIMIT 1
+         ) a_correct ON TRUE
          WHERE qq.quiz_id = $2
          ORDER BY qq.question_order`,
         [participant.id, session.quiz_id]
@@ -613,6 +708,9 @@ export async function getSoloResults(req, res, next) {
           type: row.question_type,
           answered: selectedAnswer !== null,
           isCorrect: row.is_correct || false,
+          pointsAwarded: row.points_awarded || 0,
+          maxPoints: row.max_points,
+          responseTimeMs: row.response_time_ms,
           selectedAnswer,
           selectedIndex: row.selected_index,
           correctAnswer: row.correct_answer,
@@ -634,6 +732,7 @@ export async function getSoloResults(req, res, next) {
         completedAt: session.completed_at,
         playerName: participant.display_name,
         score: participant.score,
+        totalPoints: participant.score,
         totalQuestions,
         correctCount,
         answeredCount,

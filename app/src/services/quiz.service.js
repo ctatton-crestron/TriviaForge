@@ -22,7 +22,7 @@ class QuizService {
     try {
       // Fetch quiz metadata
       const quizResult = await client.query(
-        'SELECT id, title, description, answer_display_timeout, created_at FROM quizzes WHERE id = $1 AND is_active = TRUE',
+        'SELECT id, title, description, answer_display_timeout, question_timer, created_at FROM quizzes WHERE id = $1 AND is_active = TRUE',
         [quizId]
       );
 
@@ -41,6 +41,8 @@ class QuizService {
           qs.question_type,
           qs.image_url,
           qs.image_type,
+          qs.points,
+          qs.time_limit,
           qq.question_order,
           a.id as answer_id,
           a.answer_text,
@@ -65,6 +67,8 @@ class QuizService {
             type: row.question_type,
             imageUrl: row.image_url || null,
             imageType: row.image_type || null,
+            points: row.points ?? 1000,
+            timeLimit: row.time_limit ?? null,
             order: row.question_order,
             choices: [],
           });
@@ -87,6 +91,7 @@ class QuizService {
         title: quiz.title,
         description: quiz.description,
         answerDisplayTimeout: quiz.answer_display_timeout,
+        questionTimer: quiz.question_timer ?? null,
         createdAt: quiz.created_at,
         questions,
       };

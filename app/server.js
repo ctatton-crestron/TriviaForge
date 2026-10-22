@@ -40,6 +40,8 @@ import { autoModeService } from './src/services/autoMode.service.js';
 import { initializeAdminPassword } from './src/services/startup.service.js';
 import { isDisplayNameBanned } from './src/services/player.service.js';
 import { matchShortAnswer } from './src/utils/similarity.js';
+import { calculatePoints, gradeChoice, totalPoints, totalCorrectResponseMs, compareStandings, DEFAULT_POINTS } from './src/utils/scoring.js';
+import { startQuestionClock, getElapsedMs, isAnswerLate, getTimerFields, getRemainingSec } from './src/services/questionTiming.service.js';
 
 // --------------------
 // Helper: Auto-detect local IP
@@ -279,25 +281,21 @@ const broadcastQuizResults = (roomCode, room) => {
   const players = Object.values(room.players)
     .filter(p => !p.isSpectator && p.answers && Object.keys(p.answers).length > 0)
     .map(p => {
-      const answers = p.answers || {};
-      let correct = 0;
-      for (const [qIdx, choice] of Object.entries(answers)) {
-        const question = room.quizData.questions[parseInt(qIdx)];
-        if (question && choice === question.correctChoice) {
-          correct++;
-        }
-      }
+      const meta = Object.values(p.answerMeta || {});
       return {
         name: p.name,
-        score: correct,
-        totalAnswered: Object.keys(answers).length
+        score: totalPoints(p),
+        points: totalPoints(p),
+        correct: meta.filter(m => m.isCorrect).length,
+        responseMs: totalCorrectResponseMs(p),
+        totalAnswered: Object.keys(p.answers || {}).length
       };
     })
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    .sort(compareStandings);
 
-  // Compute class average
-  const totalCorrect = players.reduce((sum, p) => sum + p.score, 0);
-  const classAverage = players.length > 0 ? (totalCorrect / players.length).toFixed(1) : 0;
+  // Class average (points)
+  const totalScore = players.reduce((sum, p) => sum + p.points, 0);
+  const classAverage = players.length > 0 ? (totalScore / players.length).toFixed(0) : 0;
 
   io.to(roomCode).emit('quizResults', {
     players,
@@ -807,10 +805,12 @@ app.get('/api/player/progress/:roomCode', async (req, res) => {
         playerChoice: playerChoice,
         correctChoice: wasRevealed ? question.correctChoice : null,
         isCorrect: isCorrect,
+        pointsAwarded: wasRevealed ? (player.answerMeta?.[index]?.points || 0) : null,
         revealed: wasRevealed,
         presented: wasPresented
       });
     });
+    progress.totalPoints = totalPoints(player);
 
     res.json(progress);
   } catch (err) {
@@ -858,11 +858,24 @@ app.get('/api/room/progress/:roomCode', async (req, res) => {
           });
         }
 
+        // Points only count for revealed questions, so standings don't leak live results
+        let points = 0;
+        let responseMs = 0;
+        (room.revealedQuestions || []).forEach(questionIndex => {
+          const m = player.answerMeta?.[questionIndex];
+          if (m) {
+            points += m.points || 0;
+            if (m.isCorrect) responseMs += m.responseMs || 0;
+          }
+        });
+
         return {
           name: player.displayName || player.username,
           username: player.username,
           correct: correctCount,
           answered: answeredCount,
+          points,
+          responseMs,
           connected: player.connected,
           answers: player.answers || {}
         };
@@ -899,7 +912,7 @@ const io = new Server(server, {
 // Live Rooms Logic with Session Recording (Phase 3: Using RoomService)
 // --------------------
 // REMOVED: const liveRooms = {}; - Now using roomService.liveRooms
-let quizOptions = { answerDisplayTime: 30, serverUrl: '', shortAnswerMatchThreshold: 0.85 }; // Default options
+let quizOptions = { answerDisplayTime: 30, serverUrl: '', shortAnswerMatchThreshold: 0.85, defaultQuestionTimer: 30 }; // Default options
 
 // Periodic Auto-Save Configuration (Phase 3: Using SessionService)
 // REMOVED: const AUTO_SAVE_INTERVAL = 120000; - Now in sessionService
@@ -919,7 +932,7 @@ function stopAutoSave(roomCode) {
 async function loadQuizOptions() {
   try {
     const result = await pool.query(
-      "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('answer_display_time', 'server_url', 'short_answer_match_threshold')"
+      "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('answer_display_time', 'server_url', 'short_answer_match_threshold', 'default_question_timer')"
     );
 
     if (result.rows.length > 0) {
@@ -930,6 +943,8 @@ async function loadQuizOptions() {
           quizOptions.serverUrl = row.setting_value || '';
         } else if (row.setting_key === 'short_answer_match_threshold') {
           quizOptions.shortAnswerMatchThreshold = parseFloat(row.setting_value);
+        } else if (row.setting_key === 'default_question_timer') {
+          quizOptions.defaultQuestionTimer = parseInt(row.setting_value) || 30;
         }
       }
       console.log('📋 Quiz options loaded from database:', quizOptions);
@@ -1581,6 +1596,7 @@ io.on('connection', (socket) => {
         filename: quizFilename,
         title: quiz.title,
         description: quiz.description,
+        questionTimer: quiz.questionTimer ?? null,
         questions: quiz.questions.map(q => {
           const type = q.type || 'multiple_choice';
           const base = {
@@ -1589,6 +1605,8 @@ io.on('connection', (socket) => {
             type,
             imageUrl: q.imageUrl || null,
             imageType: q.imageType || null,
+            points: q.points ?? DEFAULT_POINTS,
+            timeLimit: q.timeLimit ?? null,
             choices: q.choices.map(c => c.text),
             correctChoice: type === 'short_answer' ? -1 : q.choices.findIndex(c => c.isCorrect)
           };
@@ -1749,6 +1767,7 @@ io.on('connection', (socket) => {
         filename: `quiz_${session.quiz_id}.json`,
         title: quiz.title,
         description: quiz.description,
+        questionTimer: quiz.questionTimer ?? null,
         questions: quiz.questions.map(q => {
           const type = q.type || 'multiple_choice';
           const base = {
@@ -1757,6 +1776,8 @@ io.on('connection', (socket) => {
             type,
             imageUrl: q.imageUrl || null,
             imageType: q.imageType || null,
+            points: q.points ?? DEFAULT_POINTS,
+            timeLimit: q.timeLimit ?? null,
             choices: q.choices.map(c => c.text),
             correctChoice: type === 'short_answer' ? -1 : q.choices.findIndex(c => c.isCorrect)
           };
@@ -1775,7 +1796,10 @@ io.on('connection', (socket) => {
           u.username,
           pa.question_id,
           sq.presentation_order,
-          a.display_order as choice_index
+          a.display_order as choice_index,
+          pa.points_awarded,
+          pa.response_time_ms,
+          pa.is_correct
         FROM game_participants gp
         JOIN users u ON gp.user_id = u.id
         LEFT JOIN participant_answers pa ON gp.id = pa.participant_id
@@ -1801,12 +1825,20 @@ io.on('connection', (socket) => {
             connected: false,
             connectionState: 'disconnected', // Mark resumed players as disconnected until they rejoin
             answers: {},
+            answerMeta: {},
             isResumed: true,
             isSpectator // Mark spectators properly when loading from database
           });
         }
         if (row.presentation_order !== null && row.choice_index !== null) {
           playersMap.get(row.username).answers[row.presentation_order] = row.choice_index;
+        }
+        if (row.presentation_order !== null && row.question_id !== null) {
+          playersMap.get(row.username).answerMeta[row.presentation_order] = {
+            points: row.points_awarded || 0,
+            responseMs: row.response_time_ms ?? 0,
+            isCorrect: !!row.is_correct
+          };
         }
       }
 
@@ -1857,6 +1889,11 @@ io.on('connection', (socket) => {
         originalRoomCode: session.original_room_code,
         originalSessionId: sessionId
       };
+
+      // Resumed live question gets a fresh server-side clock
+      if (currentQuestionIndex !== null) {
+        startQuestionClock(roomService.liveRooms[roomCode], currentQuestionIndex, quizOptions);
+      }
 
       if (env.isVerboseLogging) {
         console.log(`Room ${roomCode} resumed from session ID ${sessionId} (original room: ${session.original_room_code})`);
@@ -1961,9 +1998,8 @@ io.on('connection', (socket) => {
       const autoState = autoModeService.getState(roomCode);
       const autoModeFields = room.autoMode && autoState ? {
         autoMode: true,
-        timerStartedAt: autoState.state === 'question_timer' ? autoState.timerStartedAt || new Date().toISOString() : null,
-        timerDuration: autoState.questionTimerSeconds
-      } : {};
+        ...(isRevealed ? { timerStartedAt: null } : getTimerFields(room, room.currentQuestionIndex))
+      } : (isRevealed ? {} : getTimerFields(room, room.currentQuestionIndex));
 
       socket.emit('questionPresented', { questionIndex: room.currentQuestionIndex, question: questionData, presentedQuestions: room.presentedQuestions, ...autoModeFields });
     }
@@ -2355,7 +2391,7 @@ io.on('connection', (socket) => {
         correctChoice: isRevealed ? question.correctChoice : undefined
       };
 
-      socket.emit('questionPresented', { questionIndex: room.currentQuestionIndex, question: questionData });
+      socket.emit('questionPresented', { questionIndex: room.currentQuestionIndex, question: questionData, ...(isRevealed ? {} : getTimerFields(room, room.currentQuestionIndex)) });
       console.log(`Sent current question ${room.currentQuestionIndex} to ${playerDisplayName} (${playerUsername}) - Revealed: ${isRevealed}`);
     }
   });
@@ -2411,7 +2447,9 @@ io.on('connection', (socket) => {
     });
 
     const question = room.quizData.questions[questionIndex];
-    io.to(roomCode).emit('questionPresented', { questionIndex, question, presentedQuestions: room.presentedQuestions });
+    // Server-side clock: governs the countdown, late-answer rejection and speed points
+    startQuestionClock(room, questionIndex, quizOptions);
+    io.to(roomCode).emit('questionPresented', { questionIndex, question, presentedQuestions: room.presentedQuestions, ...getTimerFields(room, questionIndex) });
 
     // Update player list to show reset choices
     io.to(roomCode).emit('playerListUpdate', { roomCode, players: Object.values(room.players).filter(p => !p.isSpectator), revealedCount: (room.revealedQuestions || []).length, totalQuestions: room.quizData.questions.length });
@@ -2490,11 +2528,37 @@ io.on('connection', (socket) => {
         return;
       }
 
+      const qIdx = room.currentQuestionIndex;
+      const currentQuestion = room.quizData.questions[qIdx];
+
+      // Enforce the question time limit on the server (client clocks are never trusted)
+      if (isAnswerLate(room, qIdx)) {
+        socket.emit('answerRejected', {
+          message: "Time's up - your answer was not accepted",
+          questionIndex: qIdx,
+          timeExpired: true
+        });
+        return;
+      }
+
+      // Grade now and award speed-based points
+      const responseMs = getElapsedMs(room, qIdx) ?? 0;
+      const limitSec = room.questionClocks?.[qIdx]?.limitSec;
+      const isCorrect = gradeChoice(currentQuestion, choice, quizOptions.shortAnswerMatchThreshold ?? 0.85);
+      const pointsAwarded = calculatePoints({
+        isCorrect,
+        points: currentQuestion?.points,
+        limitSec,
+        elapsedMs: responseMs
+      });
+
       player.choice = choice;
 
       // Record answer in player's history
       if (!player.answers) player.answers = {};
-      player.answers[room.currentQuestionIndex] = choice;
+      player.answers[qIdx] = choice;
+      if (!player.answerMeta) player.answerMeta = {};
+      player.answerMeta[qIdx] = { points: pointsAwarded, responseMs, isCorrect, answeredAt: new Date().toISOString() };
 
       // PHASE 3: Update RoomSessionID with answer data
       if (player.roomSessionID) {
@@ -2569,12 +2633,14 @@ io.on('connection', (socket) => {
     const results = Object.values(room.players)
       .filter(p => !p.isSpectator)
       .map(p => {
-        if (question.type === 'short_answer') {
-          const threshold = quizOptions.shortAnswerMatchThreshold ?? 0.85;
-          const match = matchShortAnswer(p.choice, question.acceptedAnswers || [], threshold);
-          return { name: p.name, choice: p.choice, is_correct: match.isCorrect };
-        }
-        return { name: p.name, choice: p.choice, is_correct: p.choice === question.correctChoice };
+        const meta = p.answerMeta?.[room.currentQuestionIndex];
+        return {
+          name: p.name,
+          choice: p.choice,
+          is_correct: gradeChoice(question, p.choice, quizOptions.shortAnswerMatchThreshold ?? 0.85),
+          pointsAwarded: meta?.points || 0,
+          totalPoints: totalPoints(p)
+        };
       });
 
     io.to(roomCode).emit('questionRevealed', {
@@ -3093,6 +3159,8 @@ if (DEBUG_ENABLED) {
             type: q.type || 'multiple_choice',
             imageUrl: q.imageUrl || null,
             imageType: q.imageType || null,
+            points: q.points ?? DEFAULT_POINTS,
+            timeLimit: q.timeLimit ?? null,
             choices: q.choices.map(c => c.text),
             correctChoice: q.choices.findIndex(c => c.isCorrect)
           })),

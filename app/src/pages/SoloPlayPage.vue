@@ -127,7 +127,7 @@
           </div>
           <div class="score-display">
             <AppIcon name="trophy" size="sm" />
-            Score: {{ score }}/{{ answeredCount }}
+            {{ score }} pts
           </div>
         </div>
 
@@ -140,7 +140,7 @@
         <CountdownTimer
           v-if="timerStartedAt && !isAnswerRevealed"
           :startedAt="timerStartedAt"
-          :duration="questionTimer"
+          :duration="questionTime"
           :active="!isAnswerRevealed"
           @expired="handleTimerExpired(shortAnswerText)"
         />
@@ -200,7 +200,8 @@
               <AppIcon :name="lastAnswerResult?.isCorrect ? 'check-circle' : 'x-circle'" size="xl" />
             </div>
             <div class="feedback-text">
-              <strong v-if="lastAnswerResult?.isCorrect">Correct!</strong>
+              <strong v-if="lastAnswerResult?.isCorrect">Correct! +{{ lastAnswerResult?.pointsAwarded }} pts</strong>
+              <strong v-else-if="lastAnswerResult?.late">Time's up</strong>
               <strong v-else>Incorrect</strong>
               <p>The correct answer was: <em>{{ lastAnswerResult?.correctAnswerText }}</em></p>
             </div>
@@ -237,6 +238,7 @@
               <span class="score-value">{{ results.percentage }}%</span>
             </div>
             <div class="score-details">
+              <p class="score-text">{{ results.totalPoints }} points</p>
               <p class="score-text">{{ results.correctCount }} of {{ results.totalQuestions }} correct</p>
               <p class="player-name">Player: {{ results.playerName }}</p>
             </div>
@@ -259,6 +261,7 @@
                     <span v-if="!q.answered" class="skipped-label">Not answered</span>
                     <span v-else-if="q.isCorrect" class="correct-label">
                       <AppIcon name="check" size="xs" /> {{ q.selectedAnswer }}
+                      <span class="correct-was"> (+{{ q.pointsAwarded }} / {{ q.maxPoints }} pts)</span>
                     </span>
                     <span v-else class="incorrect-label">
                       <AppIcon name="x" size="xs" /> {{ q.selectedAnswer }}
@@ -309,6 +312,7 @@ const {
   quizTitle,
   totalQuestions,
   questionTimer,
+  questionTime,
   currentQuestionIndex,
   currentQuestion,
   isAnswerSubmitting,

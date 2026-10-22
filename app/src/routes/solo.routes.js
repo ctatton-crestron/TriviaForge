@@ -18,6 +18,7 @@ import {
   getSoloQuiz,
   createSoloSession,
   submitSoloAnswer,
+  startSoloQuestion,
   completeSoloSession,
   getSoloResults
 } from '../controllers/solo.controller.js';
@@ -78,6 +79,9 @@ router.post('/sessions', soloSessionLimiter, optionalAuth, createSoloSession);
 
 // POST /api/solo/sessions/:id/answer - Submit an answer
 router.post('/sessions/:id/answer', soloAnswerLimiter, submitSoloAnswer);
+
+// POST /api/solo/sessions/:id/question-started - Start the server-side clock for the question now shown
+router.post('/sessions/:id/question-started', soloAnswerLimiter, startSoloQuestion);
 
 // POST /api/solo/sessions/:id/complete - Complete the session
 router.post('/sessions/:id/complete', soloAnswerLimiter, optionalAuth, completeSoloSession);

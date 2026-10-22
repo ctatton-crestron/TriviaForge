@@ -6,6 +6,7 @@
         <tr>
           <th>Rank</th>
           <th>Player</th>
+          <th>Points</th>
           <th>Correct</th>
           <th>Incorrect</th>
           <th>Accuracy</th>
@@ -20,6 +21,7 @@
             <span v-else class="rank-number">{{ idx + 1 }}</span>
           </td>
           <td>{{ result.name }}</td>
+          <td><strong>{{ (result.points || 0).toLocaleString() }}</strong></td>
           <td>{{ result.correct }}</td>
           <td>{{ (result.answered || 0) - (result.correct || 0) }}</td>
           <td>{{ getAccuracy(result) }}%</td>

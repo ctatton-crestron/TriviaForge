@@ -12,6 +12,7 @@ import { VERSION } from '../config/version.js';
 import { generateTextHash } from '../utils/similarity.js';
 import { sendSuccess } from '../utils/responses.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
+import { parseBounded, DEFAULT_POINTS, MIN_POINTS, MAX_POINTS, MIN_TIME_LIMIT, MAX_TIME_LIMIT } from '../utils/scoring.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ import { BadRequestError, NotFoundError } from '../utils/errors.js';
  */
 async function fetchQuizQuestions(quizId) {
   const result = await query(
-    `SELECT q.id, q.question_text, q.question_type, q.image_url,
+    `SELECT q.id, q.question_text, q.question_type, q.image_url, q.points, q.time_limit,
             qq.question_order,
             COALESCE(
               json_agg(DISTINCT jsonb_build_object('name', t.name)) FILTER (WHERE t.name IS NOT NULL),
@@ -31,7 +32,7 @@ async function fetchQuizQuestions(quizId) {
      LEFT JOIN question_tags qt ON qt.question_id = q.id
      LEFT JOIN tags t ON t.id = qt.tag_id
      WHERE qq.quiz_id = $1
-     GROUP BY q.id, q.question_text, q.question_type, q.image_url, qq.question_order
+     GROUP BY q.id, q.question_text, q.question_type, q.image_url, q.points, q.time_limit, qq.question_order
      ORDER BY qq.question_order`,
     [quizId]
   );
@@ -46,6 +47,8 @@ async function fetchQuizQuestions(quizId) {
         questionText: q.question_text,
         questionType: q.question_type,
         imageUrl: q.image_url || null,
+        points: q.points,
+        timeLimit: q.time_limit,
         tags: (q.tags || []).map((t) => t.name).filter(Boolean),
         answers: answers.rows.map((a) => ({
           text: a.answer_text,
@@ -160,7 +163,7 @@ export async function exportQuestionsCSV(req, res, next) {
     // Fetch all questions with their quiz memberships and answers
     const result = await query(
       `SELECT
-         q.id, q.question_text, q.question_type, q.image_url,
+         q.id, q.question_text, q.question_type, q.image_url, q.points, q.time_limit,
          COALESCE(string_agg(DISTINCT qz.title, ' | ' ORDER BY qz.title), '') AS quiz_titles,
          COALESCE(string_agg(DISTINCT t.name, '; ' ORDER BY t.name), '')       AS tag_names
        FROM questions q
@@ -169,11 +172,11 @@ export async function exportQuestionsCSV(req, res, next) {
        LEFT JOIN question_tags qt ON qt.question_id = q.id
        LEFT JOIN tags t ON t.id = qt.tag_id
        WHERE q.is_archived = FALSE
-       GROUP BY q.id, q.question_text, q.question_type, q.image_url
+       GROUP BY q.id, q.question_text, q.question_type, q.image_url, q.points, q.time_limit
        ORDER BY q.id`
     );
 
-    const headers = ['Quiz(es)', 'Question', 'Type', 'Choice A', 'Choice B', 'Choice C', 'Choice D', 'Correct', 'Tags', 'Image URL'];
+    const headers = ['Quiz(es)', 'Question', 'Type', 'Choice A', 'Choice B', 'Choice C', 'Choice D', 'Correct', 'Tags', 'Image URL', 'Points', 'Time Limit (sec)'];
     const rows = [];
 
     for (const q of result.rows) {
@@ -199,6 +202,8 @@ export async function exportQuestionsCSV(req, res, next) {
         correct,
         q.tag_names,
         q.image_url || '',
+        q.points,
+        q.time_limit ?? '',
       ]);
     }
 
@@ -274,10 +279,13 @@ export async function importQuizzesJSON(req, res, next) {
           summary.questionsReused++;
         } else {
           // Insert new question
+          // Points / time limit are optional in the file (older exports omit them)
+          const points = parseBounded(question.points, MIN_POINTS, MAX_POINTS, 'Points') ?? DEFAULT_POINTS;
+          const timeLimit = parseBounded(question.timeLimit, MIN_TIME_LIMIT, MAX_TIME_LIMIT, 'Time limit', { allowNull: true });
           const qResult = await query(
-            `INSERT INTO questions (question_text, question_type, image_url, text_hash)
-             VALUES ($1, $2, $3, $4) RETURNING id`,
-            [question.questionText, question.questionType || 'multiple_choice', question.imageUrl || null, hash]
+            `INSERT INTO questions (question_text, question_type, image_url, text_hash, points, time_limit)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [question.questionText, question.questionType || 'multiple_choice', question.imageUrl || null, hash, points, timeLimit]
           );
           questionId = qResult.rows[0].id;
           summary.questionsCreated++;

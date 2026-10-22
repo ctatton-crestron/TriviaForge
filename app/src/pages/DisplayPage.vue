@@ -35,7 +35,7 @@
       <div v-else class="question-display-area">
         <!-- Auto-Mode Countdown Timer (v5.4.0) -->
         <CountdownTimer
-          v-if="autoMode && timerDuration && timerStartedAt && !revealedAnswer"
+          v-if="timerDuration && timerStartedAt && !revealedAnswer"
           :startedAt="timerStartedAt"
           :duration="timerDuration"
           :active="!revealedAnswer"

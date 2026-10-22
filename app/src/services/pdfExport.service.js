@@ -165,10 +165,13 @@ function drawSummaryPage(doc, sessionData) {
   y += 12;
 
   // ── Summary stat pills ──
-  const sortedPlayers = [...sessionData.playerResults].sort((a, b) => {
-    if (b.correct !== a.correct) return b.correct - a.correct;
-    return pct(b.correct, b.answered) - pct(a.correct, a.answered);
-  });
+  // Rank by total points; ties: more correct answers, then faster total time on correct answers
+  const sortedPlayers = [...sessionData.playerResults].sort((a, b) =>
+    (b.points || 0) - (a.points || 0) ||
+    b.correct - a.correct ||
+    (a.responseMs || 0) - (b.responseMs || 0) ||
+    String(a.name).localeCompare(String(b.name))
+  );
   const totalPlayers = sortedPlayers.length;
   const totalQuestions = sessionData.questions.length;
   const classAccuracy = totalPlayers > 0
@@ -222,7 +225,7 @@ function drawSummaryPage(doc, sessionData) {
       doc.fontSize(8).font('Helvetica-Bold').fillColor(BRAND.text)
         .text(player.name, px, baseY + 4, { width: podiumW, align: 'center', lineBreak: false });
       doc.fontSize(8).font('Helvetica').fillColor(BRAND.muted)
-        .text(`${player.correct}/${player.answered} correct  (${pct(player.correct, player.answered)}%)`,
+        .text(`${(player.points || 0).toLocaleString()} pts  ·  ${player.correct}/${player.answered} correct`,
           px, baseY + 16, { width: podiumW, align: 'center' });
     });
 
@@ -240,7 +243,7 @@ function drawSummaryPage(doc, sessionData) {
     y += 14;
 
     // Column headers
-    const cols = { rank: 36, name: 200, correct: 60, answered: 60, accuracy: 70 };
+    const cols = { rank: 36, name: 140, points: 60, correct: 60, answered: 60, accuracy: 70 };
     const hBg = y;
     drawRect(doc, PAGE.margin, hBg, CONTENT_W, 18, BRAND.bg, 3);
     doc.fontSize(8).font('Helvetica-Bold').fillColor(BRAND.muted);
@@ -249,6 +252,8 @@ function drawSummaryPage(doc, sessionData) {
     cx += cols.rank;
     doc.text('Player', cx, hBg + 5, { width: cols.name });
     cx += cols.name;
+    doc.text('Points', cx, hBg + 5, { width: cols.points, align: 'center' });
+    cx += cols.points;
     doc.text('Correct', cx, hBg + 5, { width: cols.correct, align: 'center' });
     cx += cols.correct;
     doc.text('Answered', cx, hBg + 5, { width: cols.answered, align: 'center' });
@@ -271,6 +276,8 @@ function drawSummaryPage(doc, sessionData) {
       cx += cols.rank;
       doc.text(player.name, cx, rowY + 4, { width: cols.name, lineBreak: false });
       cx += cols.name;
+      doc.text(String(player.points || 0), cx, rowY + 4, { width: cols.points, align: 'center' });
+      cx += cols.points;
       doc.text(String(player.correct), cx, rowY + 4, { width: cols.correct, align: 'center' });
       cx += cols.correct;
       doc.text(String(player.answered), cx, rowY + 4, { width: cols.answered, align: 'center' });

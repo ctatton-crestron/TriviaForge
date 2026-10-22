@@ -2,7 +2,7 @@
   <div class="question-display-area">
     <!-- Auto-Mode Countdown Timer (v5.4.0) -->
     <CountdownTimer
-      v-if="autoMode && timerDuration && timerStartedAt && !answerRevealed"
+      v-if="timerDuration && timerStartedAt && !answerRevealed"
       :startedAt="timerStartedAt"
       :duration="timerDuration"
       :active="!answerRevealed"

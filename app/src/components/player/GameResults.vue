@@ -8,8 +8,8 @@
         <h2 class="results-title">Final Results</h2>
       </div>
       <div class="class-average-chip" v-if="classAverage !== null && classAverage !== undefined">
-        <span class="average-label">Class Average</span>
-        <span class="average-value">{{ classAverage.toFixed(1) }} / {{ totalQuestions }}</span>
+        <span class="average-label">Average Score</span>
+        <span class="average-value">{{ Math.round(classAverage).toLocaleString() }} pts</span>
       </div>
     </div>
 
@@ -26,7 +26,7 @@
           <span class="podium-medal silver">2</span>
         </div>
         <div class="podium-name">{{ podiumPlayers[1].name }}</div>
-        <div class="podium-score">{{ podiumPlayers[1].score }}/{{ totalQuestions }}</div>
+        <div class="podium-score">{{ (podiumPlayers[1].score || 0).toLocaleString() }} pts</div>
         <div class="podium-block podium-block--second">
           <span class="podium-rank-label">2nd</span>
         </div>
@@ -45,7 +45,7 @@
           <span class="podium-medal gold">1</span>
         </div>
         <div class="podium-name podium-name--first">{{ podiumPlayers[0].name }}</div>
-        <div class="podium-score podium-score--first">{{ podiumPlayers[0].score }}/{{ totalQuestions }}</div>
+        <div class="podium-score podium-score--first">{{ (podiumPlayers[0].score || 0).toLocaleString() }} pts</div>
         <div class="podium-block podium-block--first">
           <span class="podium-rank-label">1st</span>
         </div>
@@ -61,7 +61,7 @@
           <span class="podium-medal bronze">3</span>
         </div>
         <div class="podium-name">{{ podiumPlayers[2].name }}</div>
-        <div class="podium-score">{{ podiumPlayers[2].score }}/{{ totalQuestions }}</div>
+        <div class="podium-score">{{ (podiumPlayers[2].score || 0).toLocaleString() }} pts</div>
         <div class="podium-block podium-block--third">
           <span class="podium-rank-label">3rd</span>
         </div>
@@ -84,7 +84,7 @@
         >
           <span class="remaining-rank">{{ idx + 4 }}</span>
           <span class="remaining-name">{{ player.name }}</span>
-          <span class="remaining-score">{{ player.score }}/{{ totalQuestions }}</span>
+          <span class="remaining-score">{{ (player.score || 0).toLocaleString() }} pts</span>
         </div>
       </div>
     </div>
@@ -106,7 +106,7 @@ const props = defineProps({
   players: {
     type: Array,
     required: true
-    // Each item: { name: String, score: Number, totalAnswered: Number }
+    // Each item: { name: String, score: Number (total points), correct, totalAnswered: Number }
   },
   totalQuestions: {
     type: Number,

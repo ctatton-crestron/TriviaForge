@@ -2,7 +2,7 @@
 
 > **Purpose:** Current development priorities and pending tasks
 > **Last Updated:** 2026-07-20
-> **Version:** v5.15.0
+> **Version:** v5.16.0
 
 ---
 
@@ -32,6 +32,14 @@
 ---
 
 ## 🚀 Current Priorities (Active Development)
+
+### v5.16.0 Features - Per-Question Points, Time Limits & Speed Scoring ✅ COMPLETE
+
+**Status:** ✅ COMPLETE (code-complete; needs manual end-to-end run against a live database)
+**Completed:** 2026-10-21
+
+- Per-question `points` / `time_limit` (migration 19); scoring in `app/src/utils/scoring.js`; server-side clocks in `app/src/services/questionTiming.service.js`
+- Known follow-ups: debug endpoints in `server.js` (`/api/debug/*`) still use the old count-based grading; `LiveStandingsModal` per-question response detail and the stats page UI don't yet show points/short-answer text
 
 ### v5.15.0 Features - Open-Ended (Short Answer) Questions ✅ COMPLETE
 
@@ -908,5 +916,5 @@ Before marking a task as complete:
 
 **Archive:** See [archive/TODO-2025.md](archive/TODO-2025.md) for historical tasks and completed features from 2025.
 
-**Last Updated:** 2026-07-20 (v5.15.0)
+**Last Updated:** 2026-10-21 (v5.16.0)
 **Maintained By:** TriviaForge Development Team

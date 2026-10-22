@@ -4,6 +4,14 @@ Completed feature history and planned future work. For active/in-progress develo
 
 ## Completed Features
 
+**v5.16.0 (Oct 2026) - Per-Question Points, Time Limits & Speed Scoring**
+- [x] Custom points value per question (1-10000, default 1000) and custom time limit per question (5-300s; blank = quiz/global default)
+- [x] Speed-based scoring: a correct answer earns 100% of the question's points when instant, decaying linearly to 10% at the time limit; wrong/unanswered = 0
+- [x] Time limits enforced server-side in live manual, live auto-mode, and solo play (late answers rejected / scored 0; 1.5s latency grace); manual mode now shows a countdown
+- [x] Leaderboards everywhere ranked by total points (ties: more correct answers, then faster total time): presenter standings, final podium, session admin, CSV/PDF export, stats rank
+- [x] Points/time limit carried through the editor, quiz API, XLSX template/import, JSON export/import, CSV export, and question bank API
+- [x] Migration `19-question-points-and-timing.sql` (existing questions default to 1000 pts; sessions saved before v5.16.0 keep count-based scores)
+
 **v5.15.0 (Jul 2026) - Open-Ended (Short Answer) Questions**
 - [x] New `short_answer` question type — players type a free-text answer instead of picking from choices
 - [x] Automatic grading via fuzzy string matching (Levenshtein-based similarity) against admin-supplied accepted answers/synonyms

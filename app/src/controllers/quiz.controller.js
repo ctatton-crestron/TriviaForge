@@ -16,6 +16,14 @@ import {
   BadRequestError,
 } from '../utils/errors.js';
 import { sendSuccess } from '../utils/responses.js';
+import {
+  parseBounded,
+  DEFAULT_POINTS,
+  MIN_POINTS,
+  MAX_POINTS,
+  MIN_TIME_LIMIT,
+  MAX_TIME_LIMIT,
+} from '../utils/scoring.js';
 
 // Ensure uploads directory exists on startup
 const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'questions');
@@ -53,6 +61,8 @@ async function getQuizById(quizId) {
         qs.question_type,
         qs.image_url,
         qs.image_type,
+        qs.points,
+        qs.time_limit,
         qq.question_order,
         a.id AS answer_id,
         a.answer_text,
@@ -77,6 +87,8 @@ async function getQuizById(quizId) {
           type: row.question_type,
           imageUrl: row.image_url,
           imageType: row.image_type,
+          points: row.points,
+          timeLimit: row.time_limit,
           order: row.question_order,
           choices: [],
         });
@@ -203,6 +215,8 @@ export async function getQuiz(req, res, next) {
         type: q.type,
         imageUrl: q.imageUrl || null,
         imageType: q.imageType || null,
+        points: q.points,
+        timeLimit: q.timeLimit,
         choices: q.choices.map((c) => c.text),
         correctChoice: q.choices.findIndex((c) => c.isCorrect),
       })),
@@ -244,9 +258,11 @@ export async function createQuiz(req, res, next) {
       const questionType = q.type || 'multiple_choice';
       const imageUrl = q.imageUrl || null;
       const imageType = q.imageType || null;
+      const points = parseBounded(q.points, MIN_POINTS, MAX_POINTS, 'Points') ?? DEFAULT_POINTS;
+      const timeLimit = parseBounded(q.timeLimit, MIN_TIME_LIMIT, MAX_TIME_LIMIT, 'Time limit', { allowNull: true });
       const questionResult = await client.query(
-        'INSERT INTO questions (question_text, question_type, image_url, image_type, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [q.text, questionType, imageUrl, imageType, userId]
+        'INSERT INTO questions (question_text, question_type, image_url, image_type, points, time_limit, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+        [q.text, questionType, imageUrl, imageType, points, timeLimit, userId]
       );
       const questionId = questionResult.rows[0].id;
 
@@ -421,9 +437,11 @@ export async function updateQuiz(req, res, next) {
       const questionType = q.type || 'multiple_choice';
       const imageUrl = q.imageUrl || null;
       const imageType = q.imageType || null;
+      const points = parseBounded(q.points, MIN_POINTS, MAX_POINTS, 'Points') ?? DEFAULT_POINTS;
+      const timeLimit = parseBounded(q.timeLimit, MIN_TIME_LIMIT, MAX_TIME_LIMIT, 'Time limit', { allowNull: true });
       const questionResult = await client.query(
-        'INSERT INTO questions (question_text, question_type, image_url, image_type, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [q.text, questionType, imageUrl, imageType, userId]
+        'INSERT INTO questions (question_text, question_type, image_url, image_type, points, time_limit, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+        [q.text, questionType, imageUrl, imageType, points, timeLimit, userId]
       );
       const questionId = questionResult.rows[0].id;
 
@@ -544,6 +562,8 @@ export async function downloadTemplate(req, res, next) {
       { width: 18 }, // Choice I
       { width: 18 }, // Choice J
       { width: 30 }, // Correct Answer
+      { width: 16 }, // Points (optional)
+      { width: 24 }, // Time limit (optional)
     ];
 
     // Row 1: Quiz Title (label + editable)
@@ -603,10 +623,12 @@ export async function downloadTemplate(req, res, next) {
       '8',
       '9',
       '← Use these numbers',
+      'Optional',
+      'Optional',
     ];
     indexRow.font = { bold: true, color: { argb: 'FF666666' } };
     indexRow.alignment = { horizontal: 'center' };
-    for (let col = 1; col <= 12; col++) {
+    for (let col = 1; col <= 14; col++) {
       const cell = worksheet.getCell(4, col);
       cell.fill = {
         type: 'pattern',
@@ -636,10 +658,12 @@ export async function downloadTemplate(req, res, next) {
       'Choice I',
       'Choice J',
       'Correct Answer (0-based index)',
+      'Points (default 1000)',
+      'Time Limit sec (blank = quiz default)',
     ];
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }; // White text
     headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
-    for (let col = 1; col <= 12; col++) {
+    for (let col = 1; col <= 14; col++) {
       const cell = worksheet.getCell(5, col);
       cell.fill = {
         type: 'pattern',
@@ -656,8 +680,8 @@ export async function downloadTemplate(req, res, next) {
 
     // Sample questions (rows 6-9) - white background (editable)
     const sampleData = [
-      ['What is 2+2?', '3', '4', '5', '6', '', '', '', '', '', '', '1'],
-      ['What color is the sky?', 'Red', 'Blue', 'Green', 'Yellow', '', '', '', '', '', '', '1'],
+      ['What is 2+2?', '3', '4', '5', '6', '', '', '', '', '', '', '1', '500', '15'],
+      ['What color is the sky?', 'Red', 'Blue', 'Green', 'Yellow', '', '', '', '', '', '', '1', '', ''],
       [
         'Sample question with 6 choices',
         'Choice 1',
@@ -671,6 +695,8 @@ export async function downloadTemplate(req, res, next) {
         '',
         '',
         '3',
+        '2000',
+        '45',
       ],
       [
         'Sample question with 10 choices',
@@ -685,6 +711,8 @@ export async function downloadTemplate(req, res, next) {
         'I',
         'J',
         '9',
+        '',
+        '',
       ],
     ];
 
@@ -693,7 +721,7 @@ export async function downloadTemplate(req, res, next) {
       row.values = sampleData[i];
 
       // Style each cell in the sample rows
-      for (let col = 1; col <= 12; col++) {
+      for (let col = 1; col <= 14; col++) {
         const cell = worksheet.getCell(6 + i, col);
         cell.fill = {
           type: 'pattern',
@@ -815,11 +843,23 @@ export async function importQuiz(req, res, next) {
         );
       }
 
+      // Optional per-question points (column 13) and time limit in seconds (column 14)
+      let points;
+      let timeLimit;
+      try {
+        points = parseBounded(row[12], MIN_POINTS, MAX_POINTS, 'Points') ?? DEFAULT_POINTS;
+        timeLimit = parseBounded(row[13], MIN_TIME_LIMIT, MAX_TIME_LIMIT, 'Time limit', { allowNull: true });
+      } catch (e) {
+        throw new BadRequestError(`Invalid question at row ${rowIndex}: ${e.message}`);
+      }
+
       // Create question object with rowIndex for duplicate tracking
       questions.push({
         text: questionText,
         choices: choices,
         correctChoice: correctChoice,
+        points,
+        timeLimit,
         rowIndex: rowIndex,
         id: `q_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       });
@@ -840,7 +880,9 @@ export async function importQuiz(req, res, next) {
           rowIndex: q.rowIndex,
           text: q.text,
           choices: q.choices,
-          correctChoice: q.correctChoice
+          correctChoice: q.correctChoice,
+          points: q.points,
+          timeLimit: q.timeLimit
         })),
         questionCount: questions.length,
       });
@@ -904,8 +946,8 @@ export async function importQuiz(req, res, next) {
         // Create new question (default action or create-new decision)
         const questionType = q.type || 'multiple_choice';
         const questionResult = await client.query(
-          'INSERT INTO questions (question_text, question_type, created_by) VALUES ($1, $2, $3) RETURNING id',
-          [q.text, questionType, userId]
+          'INSERT INTO questions (question_text, question_type, points, time_limit, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [q.text, questionType, q.points, q.timeLimit, userId]
         );
         const questionId = questionResult.rows[0].id;
 

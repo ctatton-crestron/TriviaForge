@@ -25,22 +25,22 @@ export function generateCSV(sessionData) {
 
   // Player Results section
   lines.push('PLAYER RESULTS');
-  lines.push('Rank,Name,Correct,Answered,Accuracy');
+  lines.push('Rank,Name,Points,Correct,Answered,Accuracy');
 
-  // Sort players by correct answers (descending), then by accuracy
-  const sortedPlayers = [...sessionData.playerResults].sort((a, b) => {
-    if (b.correct !== a.correct) return b.correct - a.correct;
-    const accA = a.answered > 0 ? a.correct / a.answered : 0;
-    const accB = b.answered > 0 ? b.correct / b.answered : 0;
-    return accB - accA;
-  });
+  // Rank by total points (descending); ties: more correct answers, then faster total time
+  const sortedPlayers = [...sessionData.playerResults].sort((a, b) =>
+    (b.points || 0) - (a.points || 0) ||
+    b.correct - a.correct ||
+    (a.responseMs || 0) - (b.responseMs || 0) ||
+    String(a.name).localeCompare(String(b.name))
+  );
 
   sortedPlayers.forEach((player, index) => {
     const accuracy = player.answered > 0
       ? Math.round((player.correct / player.answered) * 100)
       : 0;
     lines.push(
-      `${index + 1},${escapeCSV(player.name)},${player.correct},${player.answered},${accuracy}%`
+      `${index + 1},${escapeCSV(player.name)},${player.points || 0},${player.correct},${player.answered},${accuracy}%`
     );
   });
 

@@ -22,6 +22,7 @@ import {
   checkBatchForDuplicates,
   findAllDuplicateGroups,
 } from '../services/deduplication.service.js';
+import { parseBounded, DEFAULT_POINTS, MIN_POINTS, MAX_POINTS, MIN_TIME_LIMIT, MAX_TIME_LIMIT } from '../utils/scoring.js';
 
 /**
  * List all questions with pagination, filtering, and sorting
@@ -291,12 +292,14 @@ export async function getQuestionDetails(req, res) {
  * Body: {
  *   question_text?: string,
  *   question_type?: 'multiple_choice' | 'true_false' | 'short_answer',
+ *   points?: number (1-10000),
+ *   time_limit?: number | null (5-300 seconds; null = quiz/global default),
  *   answers?: Array<{ id?: number, answer_text: string, is_correct: boolean, display_order: number }>
  * }
  */
 export async function updateQuestion(req, res) {
   const { id } = req.params;
-  const { question_text, question_type, answers } = req.body;
+  const { question_text, question_type, answers, points, time_limit } = req.body;
 
   // Check if question exists
   const existing = await query('SELECT * FROM questions WHERE id = $1', [id]);
@@ -329,6 +332,16 @@ export async function updateQuestion(req, res) {
       }
       updates.push(`question_type = $${paramIndex++}`);
       values.push(question_type);
+    }
+
+    if (points !== undefined) {
+      updates.push(`points = $${paramIndex++}`);
+      values.push(parseBounded(points, MIN_POINTS, MAX_POINTS, 'Points') ?? DEFAULT_POINTS);
+    }
+
+    if (time_limit !== undefined) {
+      updates.push(`time_limit = $${paramIndex++}`);
+      values.push(parseBounded(time_limit, MIN_TIME_LIMIT, MAX_TIME_LIMIT, 'Time limit', { allowNull: true }));
     }
 
     if (updates.length > 0) {
