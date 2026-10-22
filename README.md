@@ -2,7 +2,7 @@
 
 A production-ready, real-time interactive trivia game platform built with **Vue 3**, **Socket.IO**, and **PostgreSQL**. Designed for educators, event organizers, and trivia enthusiasts with robust connection stability, persistent player sessions, and estimated capacity for 50+ concurrent players.
 
-**Latest Release**: v5.15.0 - Open-Ended (Short Answer) Questions (see [ROADMAP.md](ROADMAP.md) for full release history)
+**Latest Release**: v5.16.0 - Per-Question Points, Time Limits & Speed Scoring (see [ROADMAP.md](ROADMAP.md) for full release history)
 
 ### Key Highlights
 

@@ -26,6 +26,8 @@ export function useSoloGame() {
   const quizTitle = ref('')
   const totalQuestions = ref(0)
   const questionTimer = ref(30)
+  // Effective time limit (seconds) of the question currently shown (per-question override)
+  const questionTime = ref(30)
   const revealDelay = ref(5)
 
   // Question state
@@ -119,7 +121,8 @@ export function useSoloGame() {
       score.value = 0
       answeredCount.value = 0
 
-      // Start timer
+      // Start timer (the server started its own clock for the first question at session creation)
+      questionTime.value = currentQuestion.value?.timeLimit || questionTimer.value
       timerStartedAt.value = new Date().toISOString()
 
       // Switch to playing phase
@@ -160,16 +163,16 @@ export function useSoloGame() {
       // Update answer result
       lastAnswerResult.value = {
         isCorrect: data.isCorrect,
+        late: data.late,
+        pointsAwarded: data.pointsAwarded || 0,
         correctChoice: data.correctChoice,
         correctAnswerText: data.correctAnswerText,
         selectedIndex: answerIndex,
         selectedText: answerText
       }
 
-      // Update score
-      if (data.isCorrect) {
-        score.value++
-      }
+      // Update score (total points, speed-based)
+      score.value = data.totalPoints ?? (score.value + (data.pointsAwarded || 0))
       answeredCount.value++
 
       // Reveal the answer
@@ -213,7 +216,7 @@ export function useSoloGame() {
   /**
    * Advance to the next question
    */
-  function advanceToNextQuestion() {
+  async function advanceToNextQuestion() {
     if (!isAnswerRevealed.value) return
 
     const nextQuestion = currentQuestion.value?._nextQuestion
@@ -221,10 +224,21 @@ export function useSoloGame() {
 
     if (nextQuestion) {
       // Move to next question
+      // Tell the server the next question is now shown so its clock starts (answers are timed server-side)
+      try {
+        await post(`/api/solo/sessions/${sessionId.value}/question-started`, {
+          questionId: nextQuestion.id,
+          participantId: participantId.value
+        })
+      } catch (error) {
+        console.error('Error starting question clock:', error)
+      }
+
       currentQuestion.value = nextQuestion
       currentQuestionIndex.value = nextIndex
       isAnswerRevealed.value = false
       lastAnswerResult.value = null
+      questionTime.value = nextQuestion.timeLimit || questionTimer.value
       timerStartedAt.value = new Date().toISOString()
     } else {
       // No more questions - complete the quiz
@@ -321,6 +335,7 @@ export function useSoloGame() {
     quizTitle,
     totalQuestions,
     questionTimer,
+    questionTime,
     revealDelay,
     currentQuestionIndex,
     currentQuestion,

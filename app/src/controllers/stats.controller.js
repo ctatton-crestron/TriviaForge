@@ -22,14 +22,18 @@ export async function getGameHistory(req, res, next) {
         (SELECT COUNT(sq.question_id) FROM session_questions sq WHERE sq.game_session_id = gs.id) AS total_questions,
         COUNT(pa.id) AS total_answered,
         COUNT(pa.id) FILTER (WHERE pa.is_correct) AS correct_answers,
+        COALESCE(SUM(pa.points_awarded), 0) AS total_points,
+        -- Rank by total points (ties and legacy zero-point sessions fall back to correct count)
         (SELECT COUNT(*) + 1 FROM (
-          SELECT gp3.id, COUNT(pa3.id) AS correct_count
+          SELECT gp3.id,
+                 COALESCE(SUM(pa3.points_awarded), 0) * 1000 + COUNT(pa3.id) FILTER (WHERE pa3.is_correct) AS rank_score
           FROM game_participants gp3
-          LEFT JOIN participant_answers pa3 ON gp3.id = pa3.participant_id AND pa3.is_correct = true
+          LEFT JOIN participant_answers pa3 ON gp3.id = pa3.participant_id
           WHERE gp3.game_session_id = gs.id
           GROUP BY gp3.id
-        ) ranked WHERE ranked.correct_count > (
-          SELECT COUNT(pa4.id) FROM participant_answers pa4 WHERE pa4.participant_id = gp.id AND pa4.is_correct = true
+        ) ranked WHERE ranked.rank_score > (
+          SELECT COALESCE(SUM(pa4.points_awarded), 0) * 1000 + COUNT(pa4.id) FILTER (WHERE pa4.is_correct)
+          FROM participant_answers pa4 WHERE pa4.participant_id = gp.id
         )) AS rank,
         (SELECT COUNT(*) FROM game_participants gp2
          WHERE gp2.game_session_id = gs.id) AS total_players
@@ -69,6 +73,7 @@ export async function getGameHistory(req, res, next) {
       completedAt: row.completed_at,
       quizName: row.quiz_name,
       score: parseInt(row.score),
+      totalPoints: parseInt(row.total_points),
       totalQuestions: parseInt(row.total_questions),
       correctAnswers: parseInt(row.correct_answers),
       totalAnswered: parseInt(row.total_answered),
@@ -115,8 +120,8 @@ export async function getSummaryStats(req, res, next) {
               AND gs2.status = 'completed'
               AND (SELECT COUNT(*) FROM game_participants gp3 WHERE gp3.game_session_id = gs2.id) > 1
             GROUP BY gs2.id, gp2.id
-            HAVING COUNT(pa2.id) FILTER (WHERE pa2.is_correct) >= ALL(
-              SELECT COUNT(pa3.id) FILTER (WHERE pa3.is_correct)
+            HAVING COALESCE(SUM(pa2.points_awarded), 0) * 1000 + COUNT(pa2.id) FILTER (WHERE pa2.is_correct) >= ALL(
+              SELECT COALESCE(SUM(pa3.points_awarded), 0) * 1000 + COUNT(pa3.id) FILTER (WHERE pa3.is_correct)
               FROM game_participants gp3
               LEFT JOIN participant_answers pa3 ON gp3.id = pa3.participant_id
               WHERE gp3.game_session_id = gs2.id
@@ -138,13 +143,15 @@ export async function getSummaryStats(req, res, next) {
         SELECT
           gp.id,
           (SELECT COUNT(*) + 1 FROM (
-            SELECT gp3.id, COUNT(pa3.id) AS correct_count
+            SELECT gp3.id,
+                   COALESCE(SUM(pa3.points_awarded), 0) * 1000 + COUNT(pa3.id) FILTER (WHERE pa3.is_correct) AS rank_score
             FROM game_participants gp3
-            LEFT JOIN participant_answers pa3 ON gp3.id = pa3.participant_id AND pa3.is_correct = true
+            LEFT JOIN participant_answers pa3 ON gp3.id = pa3.participant_id
             WHERE gp3.game_session_id = gs.id
             GROUP BY gp3.id
-          ) ranked WHERE ranked.correct_count > (
-            SELECT COUNT(pa4.id) FROM participant_answers pa4 WHERE pa4.participant_id = gp.id AND pa4.is_correct = true
+          ) ranked WHERE ranked.rank_score > (
+            SELECT COALESCE(SUM(pa4.points_awarded), 0) * 1000 + COUNT(pa4.id) FILTER (WHERE pa4.is_correct)
+            FROM participant_answers pa4 WHERE pa4.participant_id = gp.id
           )) AS rank
         FROM game_participants gp
         JOIN game_sessions gs ON gp.game_session_id = gs.id

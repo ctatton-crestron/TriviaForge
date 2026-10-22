@@ -22,7 +22,11 @@
           </div>
           <div class="stat-card orange">
             <div class="stat-value">{{ progressStats.avgCorrect }}</div>
-            <div class="stat-label">Avg per Player</div>
+            <div class="stat-label">Avg Correct</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ (progressStats.avgPoints || 0).toLocaleString() }}</div>
+            <div class="stat-label">Avg Points</div>
           </div>
         </div>
 
@@ -34,6 +38,7 @@
               <tr>
                 <th style="width: 40px;">#</th>
                 <th>Player</th>
+                <th>Points</th>
                 <th>Correct</th>
                 <th>Incorrect</th>
                 <th>Accuracy</th>
@@ -44,6 +49,7 @@
               <tr v-for="(player, idx) in sortedPlayers" :key="player.name" :class="['standings-row', getRankClass(idx)]">
                 <td class="rank"><AppIcon v-if="getMedalIcon(idx)" :name="getMedalIcon(idx)" size="md" :class="getMedalClass(idx)" />{{ !getMedalIcon(idx) ? idx + 1 : '' }}</td>
                 <td class="player-name">{{ player.name }}</td>
+                <td class="points"><strong>{{ (player.points || 0).toLocaleString() }}</strong></td>
                 <td class="correct">{{ player.correct }}</td>
                 <td class="incorrect">{{ player.answered - player.correct }}</td>
                 <td class="accuracy">{{ getAccuracy(player) }}%</td>

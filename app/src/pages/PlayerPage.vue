@@ -773,7 +773,11 @@ const setupSocketListeners = () => {
       historyItem.isCorrect = playerGotCorrect.value
     }
 
-    statusMessage.value = playerGotCorrect.value ? 'You got it right! 🎉' : 'Better luck next time!'
+    const earned = myResult?.pointsAwarded || 0
+    const total = myResult?.totalPoints || 0
+    statusMessage.value = playerGotCorrect.value
+      ? `You got it right! +${earned.toLocaleString()} pts (total ${total.toLocaleString()}) 🎉`
+      : `Better luck next time! (total ${total.toLocaleString()} pts)`
     statusMessageType.value = playerGotCorrect.value ? 'success' : 'error'
 
     // Auto-reset after timeout (from server quiz options, default 30 seconds)

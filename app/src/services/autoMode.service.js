@@ -1,4 +1,6 @@
 import { sessionService } from './session.service.js';
+import { gradeChoice, totalPoints } from '../utils/scoring.js';
+import { startQuestionClock, pauseQuestionClock, resumeQuestionClock, getTimerFields } from './questionTiming.service.js';
 
 const DEBUG_ENABLED = process.env.DEBUG_MODE === 'true';
 
@@ -76,6 +78,8 @@ class AutoModeService {
     if (hasLiveQuestion) {
       // Start the timer on the current live question instead of advancing
       if (DEBUG_ENABLED) console.log(`[AutoMode] Live question ${currentIdx} detected, starting timer on it`);
+      // Auto-mode starts a fresh full-length timer, so restart the server clock to match
+      if (room.questionClocks) delete room.questionClocks[currentIdx];
       this._startQuestionTimer(roomCode);
     } else {
       // No live question — present the next unpresented question
@@ -125,7 +129,7 @@ class AutoModeService {
     const elapsed = (Date.now() - new Date(state.timerStartedAt).getTime()) / 1000;
     let totalTime;
     if (state.state === 'question_timer') {
-      totalTime = state.questionTimerSeconds;
+      totalTime = state.currentLimitSeconds ?? state.questionTimerSeconds;
     } else if (state.state === 'all_answered_wait') {
       totalTime = Math.max(2, state.revealDelaySeconds);
     } else {
@@ -142,6 +146,8 @@ class AutoModeService {
     state.pausedState = state.state;
     state.remainingTime = remaining;
     state.state = 'paused';
+    const pauseRoom = this.roomService.liveRooms[roomCode];
+    if (pauseRoom && state.pausedState === 'question_timer') pauseQuestionClock(pauseRoom);
 
     if (DEBUG_ENABLED) console.log(`[AutoMode] Paused with ${remaining.toFixed(1)}s remaining`);
   }
@@ -163,6 +169,8 @@ class AutoModeService {
     if (DEBUG_ENABLED) console.log(`[AutoMode] Resuming room ${roomCode} (was: ${state.pausedState}, remaining: ${remaining.toFixed(1)}s)`);
 
     const previousState = state.pausedState;
+    const resumeRoom = this.roomService.liveRooms[roomCode];
+    if (resumeRoom && previousState === 'question_timer') resumeQuestionClock(resumeRoom);
     state.state = previousState;
     state.pausedState = null;
     // Store the effective timer duration for this resumed segment
@@ -253,7 +261,7 @@ class AutoModeService {
       if (state.resumedDuration) {
         totalTime = state.resumedDuration;
       } else if (state.state === 'question_timer') {
-        totalTime = state.questionTimerSeconds;
+        totalTime = state.currentLimitSeconds ?? state.questionTimerSeconds;
       } else if (state.state === 'all_answered_wait') {
         totalTime = Math.max(2, state.revealDelaySeconds);
       } else {
@@ -267,7 +275,7 @@ class AutoModeService {
     return {
       enabled: state.enabled,
       state: state.state,
-      questionTimerSeconds: state.questionTimerSeconds,
+      questionTimerSeconds: state.currentLimitSeconds ?? state.questionTimerSeconds,
       revealDelaySeconds: state.revealDelaySeconds,
       timeRemaining,
       timerStartedAt: state.timerStartedAt,
@@ -331,7 +339,8 @@ class AutoModeService {
     });
 
     const question = questions[nextIndex];
-    const timerStartedAt = new Date().toISOString();
+    // Server-side clock with this question's own limit (falls back to the auto-mode timer)
+    startQuestionClock(room, nextIndex, this.quizOptions);
 
     // Emit questionPresented (matches server.js line 1806, extended with auto-mode fields)
     this.io.to(roomCode).emit('questionPresented', {
@@ -339,8 +348,7 @@ class AutoModeService {
       question,
       presentedQuestions: room.presentedQuestions,
       autoMode: true,
-      timerStartedAt,
-      timerDuration: state.questionTimerSeconds
+      ...getTimerFields(room, nextIndex)
     });
 
     // Emit player list update (matches server.js line 1809)
@@ -363,15 +371,19 @@ class AutoModeService {
     const state = this.rooms.get(roomCode);
     if (!state) return;
 
+    const room = this.roomService.liveRooms[roomCode];
+    const clock = room ? startQuestionClock(room, room.currentQuestionIndex, this.quizOptions) : null;
+    state.currentLimitSeconds = clock?.limitSec ?? state.questionTimerSeconds;
+
     state.state = 'question_timer';
     state.timerStartedAt = new Date().toISOString();
     state.resumedDuration = null; // Fresh timer, not a resume
 
-    if (DEBUG_ENABLED) console.log(`[AutoMode] Question timer started for room ${roomCode} (${state.questionTimerSeconds}s)`);
+    if (DEBUG_ENABLED) console.log(`[AutoMode] Question timer started for room ${roomCode} (${state.currentLimitSeconds}s)`);
 
     state.currentTimerId = setTimeout(() => {
       this._revealAnswer(roomCode);
-    }, state.questionTimerSeconds * 1000);
+    }, state.currentLimitSeconds * 1000);
   }
 
   /**
@@ -409,7 +421,9 @@ class AutoModeService {
       .map(p => ({
         name: p.name,
         choice: p.choice,
-        is_correct: p.choice === question.correctChoice
+        is_correct: gradeChoice(question, p.choice, this.quizOptions?.shortAnswerMatchThreshold ?? 0.85),
+        pointsAwarded: p.answerMeta?.[questionIndex]?.points || 0,
+        totalPoints: totalPoints(p)
       }));
 
     // Emit questionRevealed (matches server.js lines 1947-1953)

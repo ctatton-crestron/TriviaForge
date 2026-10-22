@@ -597,12 +597,12 @@ const fetchPresenterProgress = async () => {
     }
 
     // Sort players (excluding spectators)
+    // Rank by total points; ties: more correct answers, then faster total time on correct answers
     const sorted = [...nonSpectatorPlayers].sort((a, b) => {
+      if ((b.points || 0) !== (a.points || 0)) return (b.points || 0) - (a.points || 0)
       if (b.correct !== a.correct) return b.correct - a.correct
-      if (a.answered === 0 && b.answered === 0) return 0
-      const accuracyA = a.answered > 0 ? (a.correct / a.answered) : 0
-      const accuracyB = b.answered > 0 ? (b.correct / b.answered) : 0
-      return accuracyB - accuracyA
+      if ((a.responseMs || 0) !== (b.responseMs || 0)) return (a.responseMs || 0) - (b.responseMs || 0)
+      return String(a.name).localeCompare(String(b.name))
     })
     sortedPlayers.value = sorted
 
@@ -613,13 +613,15 @@ const fetchPresenterProgress = async () => {
     const totalIncorrect = sorted.reduce((sum, p) => sum + (p.answered - p.correct), 0)
     const overallAccuracy = totalAnswered > 0 ? ((totalCorrect / totalAnswered) * 100).toFixed(1) : '0.0'
     const avgCorrect = totalPlayers > 0 ? (totalCorrect / totalPlayers).toFixed(1) : '0.0'
+    const avgPoints = totalPlayers > 0 ? Math.round(sorted.reduce((sum, p) => sum + (p.points || 0), 0) / totalPlayers) : 0
 
     progressStats.value = {
       totalPlayers,
       totalCorrect,
       totalIncorrect,
       overallAccuracy,
-      avgCorrect
+      avgCorrect,
+      avgPoints
     }
   } catch (err) {
     console.error('Error fetching presenter progress:', err)

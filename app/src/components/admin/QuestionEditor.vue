@@ -151,6 +151,35 @@
       </select>
     </div>
 
+    <div class="scoring-wrapper">
+      <div class="scoring-field">
+        <label for="questionPoints">Points:</label>
+        <input
+          id="questionPoints"
+          type="number"
+          min="1"
+          max="10000"
+          step="1"
+          :value="points"
+          @input="$emit('update:points', $event.target.value === '' ? null : Number($event.target.value))"
+        />
+      </div>
+      <div class="scoring-field">
+        <label for="questionTimeLimit">Time limit (sec):</label>
+        <input
+          id="questionTimeLimit"
+          type="number"
+          min="5"
+          max="300"
+          step="1"
+          placeholder="Quiz default"
+          :value="timeLimit"
+          @input="$emit('update:timeLimit', $event.target.value === '' ? null : Number($event.target.value))"
+        />
+      </div>
+      <small class="scoring-hint">Faster correct answers earn more of the points (down to 10% at the time limit).</small>
+    </div>
+
     <div class="question-editor-buttons">
       <button @click="$emit('saveQuestion')" class="btn-primary">{{ editingQuestionIdx !== null ? 'Update' : 'Add' }}</button>
       <button v-if="editingQuestionIdx !== null" @click="$emit('clearForm')" class="btn-secondary">Cancel</button>
@@ -169,6 +198,8 @@ const props = defineProps({
   questionType: { type: String, default: 'multiple_choice' },
   imageUrl: { type: String, default: null },
   imageType: { type: String, default: null },
+  points: { type: Number, default: 1000 },
+  timeLimit: { type: Number, default: null },
   editingQuestionIdx: { type: [Number, null], default: null },
   draggedChoiceIdx: { type: [Number, null], default: null },
   dragOverChoiceIdx: { type: [Number, null], default: null }
@@ -180,6 +211,8 @@ const emit = defineEmits([
   'update:questionType',
   'update:imageUrl',
   'update:imageType',
+  'update:points',
+  'update:timeLimit',
   'updateChoice',
   'addChoice',
   'removeChoice',
@@ -504,6 +537,40 @@ h2 {
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 0.95rem;
+}
+
+.scoring-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+.scoring-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.scoring-field label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.scoring-field input {
+  width: 9rem;
+  padding: 0.6rem;
+  background: var(--bg-overlay-10);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.scoring-hint {
+  flex-basis: 100%;
+  color: var(--text-secondary);
 }
 
 .question-editor-buttons {

@@ -47,6 +47,8 @@
           v-model:questionType="questionType"
           v-model:imageUrl="imageUrl"
           v-model:imageType="imageType"
+          v-model:points="points"
+          v-model:timeLimit="timeLimit"
           :choices="choices"
           :editingQuestionIdx="editingQuestionIdx"
           :draggedChoiceIdx="draggedChoiceIdx"
@@ -546,6 +548,8 @@ const choices = ref(['', '', '', ''])
 const correctChoice = ref(0)
 const questionType = ref('multiple_choice')
 const imageUrl = ref(null)
+const points = ref(1000)
+const timeLimit = ref(null)
 const imageType = ref(null)
 const currentQuestions = ref([])
 const importStatus = ref('')
@@ -905,6 +909,8 @@ const editQuestion = (idx) => {
   questionType.value = question.type || 'multiple_choice'
   imageUrl.value = question.imageUrl || null
   imageType.value = question.imageType || null
+  points.value = question.points ?? 1000
+  timeLimit.value = question.timeLimit ?? null
   editingQuestionIdx.value = idx
   // Scroll to editor
   document.querySelector('.question-editor')?.scrollIntoView({ behavior: 'smooth' })
@@ -917,6 +923,8 @@ const clearQuestionForm = () => {
   questionType.value = 'multiple_choice'
   imageUrl.value = null
   imageType.value = null
+  points.value = 1000
+  timeLimit.value = null
   editingQuestionIdx.value = null
 }
 
@@ -973,13 +981,24 @@ const saveQuestion = async () => {
     return
   }
 
+  if (!Number.isInteger(points.value) || points.value < 1 || points.value > 10000) {
+    showAlert('Points must be a whole number between 1 and 10000', 'Invalid Points')
+    return
+  }
+  if (timeLimit.value !== null && (!Number.isInteger(timeLimit.value) || timeLimit.value < 5 || timeLimit.value > 300)) {
+    showAlert('Time limit must be a whole number between 5 and 300 seconds (or empty for the quiz default)', 'Invalid Time Limit')
+    return
+  }
+
   const question = {
     text: questionText.value,
     choices: choices.value,
     correctChoice: parseInt(correctChoice.value),
     type: questionType.value,
     imageUrl: imageUrl.value,
-    imageType: imageType.value
+    imageType: imageType.value,
+    points: points.value,
+    timeLimit: timeLimit.value
   }
 
   // Check for duplicates in Question Bank (only for new questions)

@@ -26,7 +26,7 @@
         @dragend="handleDragEnd"
       >
         <div class="question-content" @click="$emit('editQuestion', idx)">
-          <div class="question-text">Q{{ idx + 1 }}</div>
+          <div class="question-text">Q{{ idx + 1 }} <span class="question-meta">{{ question.points ?? 1000 }} pts<template v-if="question.timeLimit"> · {{ question.timeLimit }}s</template></span></div>
           <div class="question-preview">{{ question.text }}</div>
         </div>
         <div class="question-actions">
@@ -264,5 +264,11 @@ h2 {
   .reorder-buttons {
     flex-wrap: wrap;
   }
+}
+.question-meta {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 </style>
