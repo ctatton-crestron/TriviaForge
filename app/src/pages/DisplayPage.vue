@@ -76,6 +76,11 @@
         <span class="progress-count">{{ revealedCount }} / {{ totalQuestions }}</span>
       </div>
 
+      <!-- Live Standings -->
+      <Button variant="primary" class="standings-button" :disabled="!roomCode" @click="openStandings">
+        <AppIcon name="trophy" size="sm" /> Standings
+      </Button>
+
       <!-- Players List -->
       <h3 class="sidebar-title">Players ({{ connectedPlayers }})</h3>
       <div class="players-list">
@@ -98,6 +103,9 @@
         </div>
       </div>
     </div>
+
+    <!-- Live Standings Modal (player standings only) -->
+    <DisplayStandingsModal :isOpen="showStandings" :sortedPlayers="standings" @close="showStandings = false" />
 
     <!-- Room Code Modal -->
     <Modal :isOpen="showRoomCodeModal" @close="() => {}" title="Enter Room Code">
@@ -123,6 +131,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSocket } from '@/composables/useSocket.js'
 import { useUIStore } from '@/stores/ui.js'
+import { useApi } from '@/composables/useApi.js'
 import { useTheme } from '@/composables/useTheme.js'
 import Modal from '@/components/common/Modal.vue'
 import Button from '@/components/common/Button.vue'
@@ -131,10 +140,12 @@ import ThemeToggle from '@/components/display/ThemeToggle.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import CountdownTimer from '@/components/player/CountdownTimer.vue'
 import GameResults from '@/components/player/GameResults.vue'
+import DisplayStandingsModal from '@/components/display/DisplayStandingsModal.vue'
 
 const route = useRoute()
 const socket = useSocket()
 const uiStore = useUIStore()
+const { get } = useApi()
 
 // Initialize theme for DisplayPage (grey theme default)
 const { initTheme } = useTheme('DISPLAY')
@@ -153,6 +164,33 @@ const currentPlayers = ref([])
 // Question progress counter
 const revealedCount = ref(0)
 const totalQuestions = ref(0)
+
+// Live standings modal (points-ranked, reveal-gated by the server)
+const showStandings = ref(false)
+const standings = ref([])
+
+const fetchStandings = async () => {
+  if (!roomCode.value) return
+  try {
+    const response = await get(`/api/room/progress/${roomCode.value}`)
+    const players = (response.data?.players || []).filter(p => !p.isSpectator && p.answered > 0)
+    // Same ordering as the presenter: points, then correct, then faster total time, then name
+    standings.value = players.sort((a, b) =>
+      (b.points || 0) - (a.points || 0) ||
+      b.correct - a.correct ||
+      (a.responseMs || 0) - (b.responseMs || 0) ||
+      String(a.name).localeCompare(String(b.name))
+    )
+  } catch (error) {
+    // Room closed or not found - show the empty state
+    standings.value = []
+  }
+}
+
+const openStandings = async () => {
+  showStandings.value = true
+  await fetchStandings()
+}
 
 // End-of-game state (v5.6.0)
 const quizResultsData = ref(null)
@@ -277,6 +315,9 @@ onMounted(() => {
   socket.on('questionPresented', ({ questionIndex, question, autoMode: isAutoMode, timerStartedAt: serverTimerStartedAt, timerDuration: serverTimerDuration }) => {
     console.log('[DISPLAY] Question presented:', questionIndex)
 
+    // Close the standings table so the new question is visible
+    showStandings.value = false
+
     // Clear any existing display timeout from previous question
     if (questionDisplayTimeout.value) {
       clearTimeout(questionDisplayTimeout.value)
@@ -306,6 +347,7 @@ onMounted(() => {
       revealedCount.value = rc || 0
       totalQuestions.value = tq
     }
+    if (showStandings.value) fetchStandings()
     console.log('[DISPLAY] Answer revealed for question:', questionIndex)
     console.log('[DISPLAY] Answer display time from server:', answerDisplayTime)
 
@@ -365,6 +407,7 @@ onMounted(() => {
   // End-of-game results (v5.6.0) - arrives 5s after quizCompleted if enabled
   socket.on('quizResults', (data) => {
     if (data.showResults) {
+      showStandings.value = false
       quizResultsData.value = data
       resultsCountdown.value = 0
       if (countdownInterval) {
@@ -376,6 +419,8 @@ onMounted(() => {
 
   // Listen for room closed
   socket.on('roomClosed', () => {
+    showStandings.value = false
+    standings.value = []
     quizResultsData.value = null
     quizCompleted.value = false
     isQuestionDisplaying.value = false
@@ -743,6 +788,11 @@ onUnmounted(() => {
 }
 
 /* Connection status styles now in shared/badges.css */
+
+.standings-button {
+  width: 100%;
+  margin-bottom: 1rem;
+}
 
 .status-display {
   margin-top: 1rem;
