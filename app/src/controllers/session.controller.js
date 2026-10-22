@@ -613,7 +613,9 @@ async function getFullSessionData(sessionId) {
       pa.answer_text,
       sq.presentation_order,
       a.display_order as choice_index,
-      pa.is_correct
+      pa.is_correct,
+      pa.points_awarded,
+      pa.response_time_ms
     FROM game_participants gp
     LEFT JOIN participant_answers pa ON gp.id = pa.participant_id
     LEFT JOIN session_questions sq ON pa.question_id = sq.question_id AND sq.game_session_id = $1
@@ -636,6 +638,8 @@ async function getFullSessionData(sessionId) {
         answers: {},
         correct: 0,
         answered: 0,
+        points: 0,
+        responseMs: 0, // total response time on correct answers (tie-break)
       });
     }
     const player = playersMap.get(row.display_name);
@@ -643,8 +647,10 @@ async function getFullSessionData(sessionId) {
       player.answers[row.presentation_order] =
         row.answer_text !== null ? row.answer_text : row.choice_index;
       player.answered++;
+      player.points += row.points_awarded || 0;
       if (row.is_correct) {
         player.correct++;
+        player.responseMs += row.response_time_ms || 0;
       }
 
       if (!shortAnswerCorrectnessByQuestion.has(row.question_id)) {
@@ -723,7 +729,9 @@ async function getFullSessionData(sessionId) {
     completedAt: session.completed_at,
     presentedQuestions,
     questions,
-    playerResults: Array.from(playersMap.values()),
+    playerResults: Array.from(playersMap.values()).sort(
+      (a, b) => b.points - a.points || b.correct - a.correct || a.responseMs - b.responseMs || a.name.localeCompare(b.name)
+    ),
   };
 }
 
