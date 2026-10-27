@@ -48,7 +48,13 @@
           <img :src="currentQuestion.imageUrl" alt="Question image" class="display-question-image" />
         </div>
         <h2 class="question-text">{{ currentQuestion?.text }}</h2>
-        <div class="choices-display">
+        <div v-if="isShortAnswer" class="short-answer-display">
+          <p v-if="!revealedAnswer" class="short-answer-hint">Type your answer on your device</p>
+          <p v-else class="short-answer-accepted">
+            Accepted answers: <strong>{{ acceptedAnswersText }}</strong>
+          </p>
+        </div>
+        <div v-else class="choices-display">
           <div
             v-for="(answer, index) in currentQuestionAnswers"
             :key="answer.id"
@@ -221,6 +227,13 @@ const awayTimeout = ref(null)
 const disconnectTimeout = ref(null)
 const questionDisplayTimeout = ref(null)
 
+const isShortAnswer = computed(() => currentQuestion.value?.type === 'short_answer')
+
+// Accepted answers arrive with questionRevealed (withheld from questionPresented)
+const acceptedAnswersText = computed(() =>
+  (currentQuestion.value?.acceptedAnswers || []).map(a => a.answer_text).join(', ')
+)
+
 const currentQuestionAnswers = computed(() => {
   if (!currentQuestion.value || !currentQuestion.value.choices) return []
   return currentQuestion.value.choices.map((text, index) => ({
@@ -345,6 +358,7 @@ onMounted(() => {
     currentQuestion.value = {
       text: question.text,
       imageUrl: question.imageUrl || null,
+      type: question.type || 'multiple_choice',
       choices: question.choices || [],
       correctChoice: question.correctChoice
     }
@@ -366,6 +380,7 @@ onMounted(() => {
     // Show the correct answer
     if (question.correctChoice !== undefined && currentQuestion.value) {
       currentQuestion.value.correctChoice = question.correctChoice
+      currentQuestion.value.acceptedAnswers = question.acceptedAnswers || []
       revealedAnswer.value = {
         id: question.correctChoice,
         text: currentQuestion.value.choices[question.correctChoice]
@@ -641,6 +656,13 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-primary);
   flex-shrink: 1;
+}
+
+.short-answer-display {
+  text-align: center;
+  font-size: 2rem;
+  margin-top: 2rem;
+  opacity: 0.9;
 }
 
 .choices-display {
