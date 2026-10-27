@@ -1,3 +1,4 @@
+import { questionForClients } from '../utils/questionPayload.js';
 import { sessionService } from './session.service.js';
 import { gradeChoice, totalPoints, buildQuizResultsPayload } from '../utils/scoring.js';
 import { startQuestionClock, pauseQuestionClock, resumeQuestionClock, getTimerFields } from './questionTiming.service.js';
@@ -345,7 +346,7 @@ class AutoModeService {
     // Emit questionPresented (matches server.js line 1806, extended with auto-mode fields)
     this.io.to(roomCode).emit('questionPresented', {
       questionIndex: nextIndex,
-      question,
+      question: questionForClients(question, room.revealedQuestions.includes(nextIndex)),
       presentedQuestions: room.presentedQuestions,
       autoMode: true,
       ...getTimerFields(room, nextIndex)

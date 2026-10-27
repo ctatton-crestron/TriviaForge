@@ -761,6 +761,8 @@ const setupSocketListeners = () => {
 
     answerRevealed.value = true
     currentQuestion.value.correctChoice = question.correctChoice
+    // Answer key is withheld until reveal (short answer: accepted answers)
+    if (question.acceptedAnswers) currentQuestion.value.acceptedAnswers = question.acceptedAnswers
 
     const myResult = results.find(r => r.name === currentDisplayName.value)
     playerGotCorrect.value = myResult && myResult.is_correct
@@ -770,6 +772,7 @@ const setupSocketListeners = () => {
     if (historyItem) {
       historyItem.revealed = true
       historyItem.correctChoice = question.correctChoice
+      if (question.type === 'short_answer') historyItem.choices = question.choices
       historyItem.isCorrect = playerGotCorrect.value
     }
 
