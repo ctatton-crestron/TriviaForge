@@ -40,7 +40,7 @@ import { autoModeService } from './src/services/autoMode.service.js';
 import { initializeAdminPassword } from './src/services/startup.service.js';
 import { isDisplayNameBanned } from './src/services/player.service.js';
 import { matchShortAnswer } from './src/utils/similarity.js';
-import { calculatePoints, gradeChoice, totalPoints, totalCorrectResponseMs, compareStandings, DEFAULT_POINTS } from './src/utils/scoring.js';
+import { calculatePoints, gradeChoice, totalPoints, buildQuizResultsPayload, DEFAULT_POINTS } from './src/utils/scoring.js';
 import { startQuestionClock, getElapsedMs, isAnswerLate, getTimerFields, getRemainingSec } from './src/services/questionTiming.service.js';
 
 // --------------------
@@ -276,33 +276,7 @@ const sessionHasAnswers = (room) => {
 // --------------------
 const broadcastQuizResults = (roomCode, room) => {
   if (!room.showResults) return;
-
-  const totalQuestions = room.quizData.questions.length;
-  const players = Object.values(room.players)
-    .filter(p => !p.isSpectator && p.answers && Object.keys(p.answers).length > 0)
-    .map(p => {
-      const meta = Object.values(p.answerMeta || {});
-      return {
-        name: p.name,
-        score: totalPoints(p),
-        points: totalPoints(p),
-        correct: meta.filter(m => m.isCorrect).length,
-        responseMs: totalCorrectResponseMs(p),
-        totalAnswered: Object.keys(p.answers || {}).length
-      };
-    })
-    .sort(compareStandings);
-
-  // Class average (points)
-  const totalScore = players.reduce((sum, p) => sum + p.points, 0);
-  const classAverage = players.length > 0 ? (totalScore / players.length).toFixed(0) : 0;
-
-  io.to(roomCode).emit('quizResults', {
-    players,
-    totalQuestions,
-    classAverage: parseFloat(classAverage),
-    showResults: true
-  });
+  io.to(roomCode).emit('quizResults', buildQuizResultsPayload(room));
 };
 
 // --------------------

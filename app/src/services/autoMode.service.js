@@ -1,5 +1,5 @@
 import { sessionService } from './session.service.js';
-import { gradeChoice, totalPoints } from '../utils/scoring.js';
+import { gradeChoice, totalPoints, buildQuizResultsPayload } from '../utils/scoring.js';
 import { startQuestionClock, pauseQuestionClock, resumeQuestionClock, getTimerFields } from './questionTiming.service.js';
 
 const DEBUG_ENABLED = process.env.DEBUG_MODE === 'true';
@@ -505,38 +505,8 @@ class AutoModeService {
 
     // v5.6.0: Broadcast final results after a 5-second delay (countdown transition)
     if (room.showResults) {
-      const io = this.io;
-      const roomRef = room;
       setTimeout(() => {
-        const totalQuestions = roomRef.quizData.questions.length;
-        const players = Object.values(roomRef.players)
-          .filter(p => !p.isSpectator && p.answers && Object.keys(p.answers).length > 0)
-          .map(p => {
-            const answers = p.answers || {};
-            let correct = 0;
-            for (const [qIdx, choice] of Object.entries(answers)) {
-              const question = roomRef.quizData.questions[parseInt(qIdx)];
-              if (question && choice === question.correctChoice) {
-                correct++;
-              }
-            }
-            return {
-              name: p.name,
-              score: correct,
-              totalAnswered: Object.keys(answers).length
-            };
-          })
-          .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-
-        const totalCorrect = players.reduce((sum, p) => sum + p.score, 0);
-        const classAverage = players.length > 0 ? parseFloat((totalCorrect / players.length).toFixed(1)) : 0;
-
-        io.to(roomCode).emit('quizResults', {
-          players,
-          totalQuestions,
-          classAverage,
-          showResults: true
-        });
+        this.io.to(roomCode).emit('quizResults', buildQuizResultsPayload(room));
       }, 5000);
     }
 
