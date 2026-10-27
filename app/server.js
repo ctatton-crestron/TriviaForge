@@ -40,6 +40,7 @@ import { autoModeService } from './src/services/autoMode.service.js';
 import { initializeAdminPassword } from './src/services/startup.service.js';
 import { isDisplayNameBanned } from './src/services/player.service.js';
 import { matchShortAnswer } from './src/utils/similarity.js';
+import { questionForClients, publicChoices } from './src/utils/questionPayload.js';
 import { calculatePoints, gradeChoice, totalPoints, buildQuizResultsPayload, DEFAULT_POINTS } from './src/utils/scoring.js';
 import { startQuestionClock, getElapsedMs, isAnswerLate, getTimerFields, getRemainingSec } from './src/services/questionTiming.service.js';
 
@@ -775,7 +776,7 @@ app.get('/api/player/progress/:roomCode', async (req, res) => {
       progress.questionHistory.push({
         index: index,
         text: question.text,
-        choices: question.choices,
+        choices: publicChoices(question, wasRevealed),
         playerChoice: playerChoice,
         correctChoice: wasRevealed ? question.correctChoice : null,
         isCorrect: isCorrect,
@@ -1962,11 +1963,7 @@ io.on('connection', (socket) => {
       const isRevealed = room.revealedQuestions && room.revealedQuestions.includes(room.currentQuestionIndex);
 
       // Include revealed status for viewers
-      const questionData = {
-        ...question,
-        revealed: isRevealed,
-        correctChoice: isRevealed ? question.correctChoice : undefined
-      };
+      const questionData = questionForClients(question, isRevealed);
 
       // Include auto-mode timer info if auto-mode is active
       const autoState = autoModeService.getState(roomCode);
@@ -2338,7 +2335,7 @@ io.on('connection', (socket) => {
           choice,
           isRevealed,
           text: question.text,
-          choices: question.choices
+          choices: publicChoices(question, isRevealed)
         };
 
         // Only include correctChoice and isCorrect for revealed questions
@@ -2359,11 +2356,7 @@ io.on('connection', (socket) => {
       const isRevealed = room.revealedQuestions && room.revealedQuestions.includes(room.currentQuestionIndex);
 
       // Include revealed status to prevent late joiners from answering revealed questions
-      const questionData = {
-        ...question,
-        revealed: isRevealed,
-        correctChoice: isRevealed ? question.correctChoice : undefined
-      };
+      const questionData = questionForClients(question, isRevealed);
 
       socket.emit('questionPresented', { questionIndex: room.currentQuestionIndex, question: questionData, ...(isRevealed ? {} : getTimerFields(room, room.currentQuestionIndex)) });
       console.log(`Sent current question ${room.currentQuestionIndex} to ${playerDisplayName} (${playerUsername}) - Revealed: ${isRevealed}`);
@@ -2423,7 +2416,7 @@ io.on('connection', (socket) => {
     const question = room.quizData.questions[questionIndex];
     // Server-side clock: governs the countdown, late-answer rejection and speed points
     startQuestionClock(room, questionIndex, quizOptions);
-    io.to(roomCode).emit('questionPresented', { questionIndex, question, presentedQuestions: room.presentedQuestions, ...getTimerFields(room, questionIndex) });
+    io.to(roomCode).emit('questionPresented', { questionIndex, question: questionForClients(question, room.revealedQuestions.includes(questionIndex)), presentedQuestions: room.presentedQuestions, ...getTimerFields(room, questionIndex) });
 
     // Update player list to show reset choices
     io.to(roomCode).emit('playerListUpdate', { roomCode, players: Object.values(room.players).filter(p => !p.isSpectator), revealedCount: (room.revealedQuestions || []).length, totalQuestions: room.quizData.questions.length });
