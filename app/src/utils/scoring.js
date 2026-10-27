@@ -77,3 +77,34 @@ export function compareStandings(a, b) {
     || ((a.responseMs ?? 0) - (b.responseMs ?? 0))
     || String(a.name).localeCompare(String(b.name))
 }
+
+/**
+ * Final-results payload for the podium (live rooms). Shared by the manual and
+ * auto-pilot completion paths so both rank and total by points.
+ */
+export function buildQuizResultsPayload(room) {
+  const players = Object.values(room.players)
+    .filter(p => !p.isSpectator && p.answers && Object.keys(p.answers).length > 0)
+    .map(p => {
+      const points = totalPoints(p)
+      return {
+        name: p.name,
+        score: points,
+        points,
+        correct: Object.values(p.answerMeta || {}).filter(m => m.isCorrect).length,
+        responseMs: totalCorrectResponseMs(p),
+        totalAnswered: Object.keys(p.answers).length
+      }
+    })
+    .sort(compareStandings)
+
+  const totalScore = players.reduce((sum, p) => sum + p.points, 0)
+  const classAverage = players.length > 0 ? Math.round(totalScore / players.length) : 0
+
+  return {
+    players,
+    totalQuestions: room.quizData.questions.length,
+    classAverage,
+    showResults: true
+  }
+}
