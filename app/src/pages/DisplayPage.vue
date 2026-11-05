@@ -53,6 +53,12 @@
           <p v-else class="short-answer-accepted">
             Accepted answers: <strong>{{ acceptedAnswersText }}</strong>
           </p>
+          <p v-if="revealedAnswer && correctPercent" class="response-summary">
+            {{ correctPercent }} answered correctly
+          </p>
+          <p v-if="revealedAnswer && noResponsePercent" class="response-summary response-summary--none">
+            {{ noResponsePercent }} did not respond
+          </p>
         </div>
         <div v-else class="choices-display">
           <div
@@ -61,6 +67,10 @@
             :class="['choice-display', { 'choice-correct': revealedAnswer?.id === answer.id }]"
           >
             <strong>{{ String.fromCharCode(65 + index) }}.</strong> {{ answer.text }}
+            <span v-if="revealedAnswer && choicePercents" class="choice-percent">{{ choicePercents[index] }}</span>
+          </div>
+          <div v-if="revealedAnswer && noResponsePercent" class="no-response-percent">
+            No response: <strong>{{ noResponsePercent }}</strong>
           </div>
         </div>
       </div>
@@ -234,6 +244,37 @@ const acceptedAnswersText = computed(() =>
   (currentQuestion.value?.acceptedAnswers || []).map(a => a.answer_text).join(', ')
 )
 
+// Per-player results from questionRevealed, used for response percentages
+const revealResults = ref([])
+
+const formatPercent = (count, total) => `${((count / total) * 100).toFixed(1)}%`
+
+// Percentages are out of everyone in the room (spectators are already excluded)
+const hasResponse = r => r.choice !== null && r.choice !== undefined
+
+// Multiple choice / true-false: share of the room that picked each option
+const choicePercents = computed(() => {
+  const total = revealResults.value.length
+  if (!total || !currentQuestion.value?.choices) return null
+  return currentQuestion.value.choices.map((_, i) =>
+    formatPercent(revealResults.value.filter(r => r.choice === i).length, total)
+  )
+})
+
+// Short answer: share of the room that answered correctly
+const correctPercent = computed(() => {
+  const total = revealResults.value.length
+  if (!total) return null
+  return formatPercent(revealResults.value.filter(r => r.is_correct).length, total)
+})
+
+// Share of the room that did not submit a response
+const noResponsePercent = computed(() => {
+  const total = revealResults.value.length
+  if (!total) return null
+  return formatPercent(revealResults.value.filter(r => !hasResponse(r)).length, total)
+})
+
 const currentQuestionAnswers = computed(() => {
   if (!currentQuestion.value || !currentQuestion.value.choices) return []
   return currentQuestion.value.choices.map((text, index) => ({
@@ -364,10 +405,11 @@ onMounted(() => {
     }
     isQuestionDisplaying.value = true
     revealedAnswer.value = null
+    revealResults.value = []
   })
 
   // Listen for answer reveal
-  socket.on('questionRevealed', ({ questionIndex, question, answerDisplayTime, revealedCount: rc, totalQuestions: tq }) => {
+  socket.on('questionRevealed', ({ questionIndex, question, results, answerDisplayTime, revealedCount: rc, totalQuestions: tq }) => {
     // Update question progress counter
     if (tq !== undefined) {
       revealedCount.value = rc || 0
@@ -375,6 +417,7 @@ onMounted(() => {
     }
     if (showStandings.value) fetchStandings()
     console.log('[DISPLAY] Answer revealed for question:', questionIndex)
+    revealResults.value = Array.isArray(results) ? results : []
     console.log('[DISPLAY] Answer display time from server:', answerDisplayTime)
 
     // Show the correct answer
@@ -691,6 +734,31 @@ onUnmounted(() => {
   overflow: hidden;
   line-height: 1.3;
   color: var(--text-primary);
+}
+
+.choice-percent {
+  display: block;
+  margin-top: 0.25em;
+  font-weight: 700;
+  font-size: 1.1em;
+}
+
+.no-response-percent {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: clamp(0.85rem, 2vmin, 1.5rem);
+  color: var(--text-primary);
+  opacity: 0.85;
+}
+
+.response-summary--none {
+  margin-top: 0.25rem;
+  opacity: 0.85;
+}
+
+.response-summary {
+  margin-top: 1rem;
+  font-weight: 700;
 }
 
 .choice-display.choice-correct {
