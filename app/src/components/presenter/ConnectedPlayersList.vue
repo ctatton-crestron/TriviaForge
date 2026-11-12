@@ -36,7 +36,7 @@
             <span class="player-status" :class="getConnectionStateClass(player)">{{ getConnectionSymbol(player) }}</span>
             {{ player.name }}
             <AppIcon v-if="player.connectionState === 'warning'" name="alert-triangle" size="sm" class="player-warning-icon" title="Rapid switching detected" />
-            <AppIcon v-if="player.choice !== null" name="check" size="sm" class="player-answered" />
+            <AppIcon v-if="player.hasAnswered" name="check" size="sm" class="player-answered" />
             <div class="player-menu-container">
               <button class="btn-player-menu" @click="togglePlayerMenu(player.name)" title="Player actions">⋮</button>
               <div v-if="playerMenuOpen === player.name" class="player-menu">
@@ -63,7 +63,7 @@
             <span class="player-status" :class="getConnectionStateClass(player)">{{ getConnectionSymbol(player) }}</span>
             {{ player.name }}
             <AppIcon v-if="player.connectionState === 'warning'" name="alert-triangle" size="sm" class="player-warning-icon" title="Rapid switching detected" />
-            <AppIcon v-if="player.choice !== null" name="check" size="sm" class="player-answered" />
+            <AppIcon v-if="player.hasAnswered" name="check" size="sm" class="player-answered" />
             <div class="player-menu-container">
               <button class="btn-player-menu" @click="togglePlayerMenu(player.name)" title="Player actions">⋮</button>
               <div v-if="playerMenuOpen === player.name" class="player-menu">
@@ -90,7 +90,7 @@
             <span class="player-status" :class="getConnectionStateClass(player)">{{ getConnectionSymbol(player) }}</span>
             {{ player.name }}
             <AppIcon v-if="player.connectionState === 'warning'" name="alert-triangle" size="sm" class="player-warning-icon" title="Rapid switching detected" />
-            <AppIcon v-if="player.choice !== null" name="check" size="sm" class="player-answered" />
+            <AppIcon v-if="player.hasAnswered" name="check" size="sm" class="player-answered" />
             <div class="player-menu-container">
               <button class="btn-player-menu" @click="togglePlayerMenu(player.name)" title="Player actions">⋮</button>
               <div v-if="playerMenuOpen === player.name" class="player-menu">
