@@ -1,0 +1,19 @@
+{
+  "name": "triviaforge-client-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone load simulator: connects many fake players to a running TriviaForge room",
+  "type": "module",
+  "bin": { "tf-simulate": "./simulate.js" },
+  "scripts": {
+    "start": "node simulate.js",
+    "test": "node test/run.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "socket.io-client": "^4.7.0"
+  },
+  "devDependencies": {
+    "socket.io": "^4.7.0"
+  }
+}
