@@ -292,7 +292,7 @@ const activePlayers = computed(() => {
 const answeredPlayers = computed(() => {
   if (presentedQuestionIndex.value === null) return []
   return activePlayers.value.filter(
-    p => p.choice !== null
+    p => p.hasAnswered
   )
 })
 

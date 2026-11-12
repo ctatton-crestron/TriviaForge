@@ -1,3 +1,4 @@
+import { buildPlayerListPayload } from '../utils/playerList.js';
 import { questionForClients } from '../utils/questionPayload.js';
 import { sessionService } from './session.service.js';
 import { gradeChoice, totalPoints, buildQuizResultsPayload } from '../utils/scoring.js';
@@ -353,12 +354,7 @@ class AutoModeService {
     });
 
     // Emit player list update (matches server.js line 1809)
-    this.io.to(roomCode).emit('playerListUpdate', {
-      roomCode,
-      players: Object.values(room.players).filter(p => !p.isSpectator),
-      revealedCount: (room.revealedQuestions || []).length,
-      totalQuestions: (room.quizData?.questions || []).length
-    });
+    this.io.to(roomCode).emit('playerListUpdate', buildPlayerListPayload(roomCode, room));
 
     // Start the question timer
     this._startQuestionTimer(roomCode);

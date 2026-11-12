@@ -6,7 +6,7 @@
         <span class="player-number">{{ idx + 1 }}.</span>
         <span class="player-status" :class="{ online: player.connected, offline: !player.connected }">●</span>
         <span class="player-name">{{ player.name }}</span>
-        <AppIcon v-if="player.choice !== null" name="check" size="sm" class="player-answer" />
+        <AppIcon v-if="player.hasAnswered" name="check" size="sm" class="player-answer" />
       </div>
       <em v-if="nonSpectatorPlayers.length === 0">Not in a room yet</em>
     </div>
